@@ -60,7 +60,7 @@ The wiki is generated from `docs/` by a GitHub Action whenever `docs/` changes o
    git push origin v0.2.0
    ```
 3. GitHub Actions then:
-   - builds the **Docker image** for amd64, arm64 and armv7 and pushes `ghcr.io/anand34577/geo-tracker:0.2.0`, `:0.2` (and `:edge` for every push to main),
+   - builds the **Docker image** for amd64, arm64 and armv7 and pushes `ghcr.io/anand34577/geotracker:0.2.0`, `:0.2` (and `:edge` for every push to main),
    - builds **binaries** for Linux, macOS and Windows, writes `SHA256SUMS`, and publishes them with `install.sh` as a GitHub Release.
 
 The version is injected at build time (`-X main.version`) and shown in Admin → System and `geotracker version`.

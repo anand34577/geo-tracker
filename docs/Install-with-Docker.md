@@ -1,6 +1,6 @@
 # Install with Docker
 
-The image is published to the GitHub Container Registry for **amd64, arm64 and armv7** (Raspberry Pi included): `ghcr.io/anand34577/geo-tracker`. It is distroless, runs as a non-root user and has a built-in health check.
+The image is published to the GitHub Container Registry for **amd64, arm64 and armv7** (Raspberry Pi included): `ghcr.io/anand34577/geotracker`. It is distroless, runs as a non-root user and has a built-in health check.
 
 Pin a version tag in production (`:0.2` follows patch releases of 0.2; `:0.2.0` is fixed). `:edge` tracks the main branch.
 
@@ -34,7 +34,7 @@ Your data is in `./data` next to the compose file. That folder is everything: ba
 ```bash
 mkdir -p data && sudo chown 65532:65532 data
 docker run -d --name geotracker -p 8080:8080 -v ./data:/data \
-  --restart unless-stopped ghcr.io/anand34577/geo-tracker:0.2
+  --restart unless-stopped ghcr.io/anand34577/geotracker:0.2
 ```
 
 Open `http://localhost:8080`. Phones outside your network need HTTPS: see [HTTPS](HTTPS).
