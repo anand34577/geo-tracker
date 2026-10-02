@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Clock, LinkIcon, Radio } from "lucide-react";
@@ -30,9 +30,14 @@ export default function PublicShare() {
   const { t } = useTranslation();
   const { token } = useParams();
   useEffect(() => applyPrefs(cachedPrefs()), []);
+  const opened = useRef(false); // the first load counts as a view, live refreshes don't
   const q = useQuery({
     queryKey: ["public-share", token],
-    queryFn: () => api<PublicShareData>(`/public/shares/${token}`),
+    queryFn: async () => {
+      const d = await api<PublicShareData>(`/public/shares/${token}${opened.current ? "?poll=1" : ""}`);
+      opened.current = true;
+      return d;
+    },
     refetchInterval: (query) => (query.state.data?.kind === "live" ? 30_000 : false),
     retry: false,
   });

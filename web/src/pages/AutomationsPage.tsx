@@ -43,6 +43,7 @@ export default function AutomationsPage() {
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["automations"] });
 
   const save = useMutation({
+    meta: { inline: true }, // error shown in the form
     mutationFn: (f: Form) => api<Automation>(f.id ? `/automations/${f.id}` : "/automations", { method: f.id ? "PUT" : "POST", body: toBody(f) }),
     onSuccess: () => {
       refresh();

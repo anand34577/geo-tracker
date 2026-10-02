@@ -21,7 +21,7 @@ Phones send locations with apps you may already use: **OwnTracks**, **Overland**
 
 ```bash
 mkdir -p data && sudo chown 65532:65532 data
-docker run -d --name geotracker -p 8080:8080 -v ./data:/data --restart unless-stopped ghcr.io/anand34577/geotracker:0.2
+docker run -d --name geotracker -p 8080:8080 -v ./data:/data --restart unless-stopped ghcr.io/anand34577/geotracker:0.3
 ```
 
 **Linux / Raspberry Pi** (installs a systemd service):

@@ -38,6 +38,7 @@ type Server struct {
 	logins       *limiter
 	wakeTimeline chan struct{}
 	wakeImports  chan struct{}
+	wakeExports  chan struct{}
 	started      time.Time
 	notes        *notifyState
 	oidc         oidcCache
@@ -57,6 +58,7 @@ func New(cfg Config, db *store.Store) *Server {
 		logins:       newLimiter(),
 		wakeTimeline: make(chan struct{}, 1),
 		wakeImports:  make(chan struct{}, 1),
+		wakeExports:  make(chan struct{}, 1),
 		started:      time.Now(),
 		notes:        newNotifyState(),
 		Restart:      make(chan struct{}, 1),
@@ -165,6 +167,10 @@ func (s *Server) Handler() http.Handler {
 	handle("POST /api/v1/imports", s.user(s.uploadImport))
 	handle("DELETE /api/v1/imports/{id}", s.user(s.deleteImport))
 	handle("GET /api/v1/export", s.user(s.export))
+	handle("GET /api/v1/exports", s.user(s.listExports))
+	handle("POST /api/v1/exports", s.user(s.createExport))
+	handle("GET /api/v1/exports/{id}/download", s.user(s.downloadExport))
+	handle("DELETE /api/v1/exports/{id}", s.user(s.deleteExport))
 
 	// Admin
 	handle("GET /api/v1/admin/users", s.admin(s.listUsers))

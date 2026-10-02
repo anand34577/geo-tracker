@@ -144,6 +144,7 @@ function GroupCard({ group, onEditSharing }: { group: Group; onEditSharing: (m: 
   const paused = !!mine.paused_until && mine.paused_until > Date.now();
 
   const invite = useMutation({
+    meta: { inline: true }, // error shown in the form
     mutationFn: () => api(`/groups/${group.id}/members`, { method: "POST", body: { email } }),
     onSuccess: () => {
       refresh();
@@ -267,6 +268,7 @@ function CreateGroupDialog({ open, onClose }: { open: boolean; onClose: () => vo
   const { t } = useTranslation();
   const [name, setName] = useState("");
   const create = useMutation({
+    meta: { inline: true }, // error shown in the form
     mutationFn: () => api("/groups", { method: "POST", body: { name } }),
     onSuccess: () => { refresh(); setName(""); onClose(); },
   });
@@ -289,7 +291,7 @@ function SharingDialog({ target, onClose }: { target: { group: Group; mine: Memb
   const accepting = target?.mine.status === "invited";
   const current = target && (form ?? { live: accepting ? true : target.mine.share_live, history: String(accepting ? 1 : target.mine.share_history_days) as (typeof historyOptions)[number], precision: target.mine.precision });
   const save = useMutation({
-    mutationFn: () => api(`/groups/${target!.group.id}/me`, { method: "PUT", body: { share_live: current!.live, share_history_days: Number(current!.history), precision: current!.precision, paused_until: null } }),
+    mutationFn: () => api(`/groups/${target!.group.id}/me`, { method: "PUT", body: { share_live: current!.live, share_history_days: Number(current!.history), precision: current!.precision, paused_until: target!.mine.paused_until } }),
     onSuccess: () => { refresh(); setForm(null); onClose(); },
   });
   const close = () => { setForm(null); onClose(); };
@@ -378,6 +380,7 @@ function AlertDialog({ person, onClose }: { person: FamilyPerson | null; onClose
   const [arrive, setArrive] = useState(true);
   const [leaveToo, setLeaveToo] = useState(false);
   const create = useMutation({
+    meta: { inline: true }, // error shown in the form
     mutationFn: () => api("/alerts", { method: "POST", body: { subject_id: person!.user_id, place_id: Number(placeId), on_arrive: arrive, on_leave: leaveToo } }),
     onSuccess: () => { refresh(); onClose(); },
   });

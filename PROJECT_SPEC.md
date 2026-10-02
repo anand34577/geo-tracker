@@ -1240,7 +1240,8 @@ Each entry records the decision, **why** we made it, what we gave up, and when t
 | Signed-in device list with remote sign-out, admin audit log (1 year), data retention | ✅ tested |
 | Command palette (Ctrl/Cmd+K: pages, places, people, dates), installable PWA with offline shell | ✅ |
 | Immich photos on the timeline (server-side proxy, key never in the browser) | ✅ (not tested against a real Immich) |
-| Managed members (guardian-controlled sharing), PhotoPrism, native TOTP/passkeys | ⏳ later |
+| Privacy zones (a private place hides you from family and share links while you're inside it) | ✅ tested |
+| Managed members (guardian-controlled sharing), PhotoPrism, native TOTP/passkeys, `drop` privacy zones (don't store at all) | ⏳ later |
 
 ---
 

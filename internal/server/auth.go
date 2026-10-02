@@ -275,7 +275,10 @@ func (s *Server) patchMe(w http.ResponseWriter, r *http.Request, u *store.User) 
 	var req struct {
 		Name  *string         `json:"name"`
 		Email *string         `json:"email"`
-		Prefs json.RawMessage `json:"prefs"`
+		// Password is required to change the email of an account that has one: the email
+		// is where password resets and sign-in linking point, so a stolen session must not move it.
+		Password string          `json:"password"`
+		Prefs    json.RawMessage `json:"prefs"`
 	}
 	if !decode(w, r, &req) {
 		return
@@ -284,6 +287,10 @@ func (s *Server) patchMe(w http.ResponseWriter, r *http.Request, u *store.User) 
 		u.Name = strings.TrimSpace(*req.Name)
 	}
 	if req.Email != nil {
+		if newEmail, _ := cleanEmail(*req.Email); newEmail != u.Email && u.PasswordHash != "!" && !checkPassword(u.PasswordHash, req.Password) {
+			fail(w, http.StatusForbidden, "enter your current password to change your email")
+			return
+		}
 		u.Email = *req.Email
 	}
 	email, msg := validateAccount(u.Email, u.Name, "", false)

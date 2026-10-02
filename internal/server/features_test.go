@@ -7,10 +7,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -168,7 +170,8 @@ func TestOfflineMapServing(t *testing.T) {
 func must(b []byte, _ error) []byte { return b }
 
 // fakeIdP is a minimal OpenID provider that signs real RS256 ID tokens.
-func fakeIdP(t *testing.T, email string) *httptest.Server {
+// verified is the email_verified claim; nil leaves it out.
+func fakeIdP(t *testing.T, email string, verified any) *httptest.Server {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	signer, _ := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: key}, (&jose.SignerOptions{}).WithHeader("kid", "k1"))
 	var nonce string
@@ -190,8 +193,12 @@ func fakeIdP(t *testing.T, email string) *httptest.Server {
 			if r.FormValue("code_verifier") == "" {
 				t.Error("no PKCE verifier")
 			}
-			claims, _ := json.Marshal(map[string]any{"iss": srv.URL, "sub": "idp-user-1", "aud": "gt", "exp": time.Now().Add(time.Hour).Unix(),
-				"iat": time.Now().Unix(), "nonce": nonce, "email": email, "email_verified": true, "name": "Sam"})
+			c := map[string]any{"iss": srv.URL, "sub": "idp-user-1", "aud": "gt", "exp": time.Now().Add(time.Hour).Unix(),
+				"iat": time.Now().Unix(), "nonce": nonce, "email": email, "name": "Sam"}
+			if verified != nil {
+				c["email_verified"] = verified
+			}
+			claims, _ := json.Marshal(c)
 			sig, _ := signer.Sign(claims)
 			w.Header().Set("Content-Type", "application/json")
 			idToken, _ := sig.CompactSerialize()
@@ -208,7 +215,7 @@ func TestOIDCLogin(t *testing.T) {
 	_, ts, db := newTestServer(t)
 	ctx := context.Background()
 	db.CreateFirstAdmin(ctx, "ana@example.com", "Ana", HashPassword("correct horse"))
-	idp := fakeIdP(t, "sam@example.com")
+	idp := fakeIdP(t, "sam@example.com", true)
 	db.SetSettings(ctx, map[string]string{"oidc_enabled": "true", "oidc_issuer": idp.URL, "oidc_client_id": "gt", "oidc_client_secret": "x"})
 
 	login := func() (*http.Client, *http.Response) {
@@ -251,6 +258,16 @@ func TestOIDCLogin(t *testing.T) {
 	// SSO-only accounts have no usable password.
 	if resp, _ := do(t, "POST", ts.URL+"/api/v1/auth/login", "", `{"email":"sam@example.com","password":"!"}`); resp.StatusCode != 401 {
 		t.Fatalf("password login for SSO user: %d", resp.StatusCode)
+	}
+
+	// An existing account is only linked when the provider says the email is verified.
+	db.LinkOIDC(ctx, me.ID, "someone-else")
+	db.SetSettings(ctx, map[string]string{"oidc_issuer": fakeIdP(t, "ana@example.com", nil).URL})
+	if _, resp := login(); !strings.Contains(resp.Header.Get("Location"), "error=") {
+		t.Fatal("linked an existing account without email_verified")
+	}
+	if u, _ := db.UserByOIDC(ctx, "idp-user-1"); u != nil {
+		t.Fatalf("account linked: %+v", u)
 	}
 
 	// Forged state is rejected.
@@ -438,5 +455,133 @@ func TestSessionsAuditRetentionTripMode(t *testing.T) {
 	do(t, "PUT", ts.URL+"/api/v1/trips/mode", tok, `{"start":1030000,"mode":"walk"}`)
 	if _, trips, _ := db.Timeline(ctx, u.ID, 0, 3_000_000); len(trips) != 1 || trips[0].Mode != "walk" || !trips[0].Corrected {
 		t.Fatalf("trips = %+v", trips)
+	}
+}
+
+func TestPrivacyZonesAndOwnerDeletion(t *testing.T) {
+	_, ts, db := newTestServer(t)
+	ctx := context.Background()
+	ana, _ := db.CreateFirstAdmin(ctx, "ana@example.com", "Ana", HashPassword("correct horse"))
+	sam, _ := db.CreateUser(ctx, "sam@example.com", "Sam", HashPassword("correct horse"), "user")
+	tok := func(email string) string {
+		_, b := do(t, "POST", ts.URL+"/api/v1/auth/token", "", `{"email":"`+email+`","password":"correct horse"}`)
+		return b["token"].(string)
+	}
+	anaT, samT := tok("ana@example.com"), tok("sam@example.com")
+	_, g := do(t, "POST", ts.URL+"/api/v1/groups", samT, `{"name":"Family"}`)
+	gid := fmt.Sprint(int64(g["id"].(float64)))
+	do(t, "POST", ts.URL+"/api/v1/groups/"+gid+"/members", samT, `{"email":"ana@example.com"}`)
+	do(t, "PUT", ts.URL+"/api/v1/groups/"+gid+"/me", anaT, `{"share_live":true,"share_history_days":-1,"precision":"exact"}`)
+	do(t, "PUT", ts.URL+"/api/v1/groups/"+gid+"/me", samT, `{"share_live":true,"share_history_days":-1,"precision":"exact"}`)
+
+	// Sam is at home (a private place) now, and was in town an hour ago.
+	now := time.Now().UnixMilli()
+	db.InsertPoints(ctx, sam.ID, 0, 0, []geo.Point{{TS: now - 3_600_000, Lat: 52.50, Lon: 13.40}, {TS: now - 60_000, Lat: 52.53, Lon: 13.45}})
+	if resp, _ := do(t, "POST", ts.URL+"/api/v1/places", samT, `{"name":"Home","lat":52.53,"lon":13.45,"radius":100,"private":true}`); resp.StatusCode != 200 {
+		t.Fatalf("private place: %d", resp.StatusCode)
+	}
+	_, pts := do(t, "GET", ts.URL+fmt.Sprintf("/api/v1/points?user=%d", sam.ID), anaT, "")
+	if rows := pts["points"].([]any); len(rows) != 1 || rows[0].([]any)[1] != 52.50 {
+		t.Fatalf("points inside a privacy zone leaked: %v", rows)
+	}
+	_, own := do(t, "GET", ts.URL+"/api/v1/points", samT, "")
+	if len(own["points"].([]any)) != 2 {
+		t.Fatalf("owner must still see everything: %v", own)
+	}
+	req, _ := http.NewRequest("GET", ts.URL+"/api/v1/family", nil)
+	req.Header.Set("Authorization", "Bearer "+anaT)
+	resp, _ := http.DefaultClient.Do(req)
+	var fam []familyPerson
+	json.NewDecoder(resp.Body).Decode(&fam)
+	resp.Body.Close()
+	if len(fam) != 1 || fam[0].Point != nil {
+		t.Fatalf("live position inside a privacy zone leaked: %+v", fam)
+	}
+	_, created := do(t, "POST", ts.URL+"/api/v1/shares", samT, `{"name":"Now","kind":"live","expires_in_hours":1}`)
+	link := created["url"].(string)
+	token := link[strings.LastIndex(link, "/")+1:]
+	_, pub := do(t, "GET", ts.URL+"/api/v1/public/shares/"+token, "", "")
+	if pub["latest"] != nil || len(pub["points"].([]any)) != 1 {
+		t.Fatalf("share link leaked a privacy zone: %v", pub)
+	}
+	do(t, "GET", ts.URL+"/api/v1/public/shares/"+token+"?poll=1", "", "")
+	if shares, _ := db.Shares(ctx, sam.ID); shares[0].Views != 1 {
+		t.Fatalf("live refreshes counted as views: %d", shares[0].Views)
+	}
+
+	// Deleting the group's owner hands the group to the remaining member.
+	if resp, _ := do(t, "DELETE", ts.URL+fmt.Sprintf("/api/v1/admin/users/%d", sam.ID), anaT, ""); resp.StatusCode != 204 {
+		t.Fatalf("delete user: %d", resp.StatusCode)
+	}
+	if m, err := db.Membership(ctx, int64(g["id"].(float64)), ana.ID); err != nil || m.Role != "owner" {
+		t.Fatalf("group left without an owner: %+v %v", m, err)
+	}
+}
+
+func TestBackgroundExportAndAccountRules(t *testing.T) {
+	s, ts, db := newTestServer(t)
+	ctx := context.Background()
+	u, _ := db.CreateFirstAdmin(ctx, "ana@example.com", "Ana", HashPassword("correct horse"))
+	_, b := do(t, "POST", ts.URL+"/api/v1/auth/token", "", `{"email":"ana@example.com","password":"correct horse"}`)
+	tok := b["token"].(string)
+	db.InsertPoints(ctx, u.ID, 0, 0, []geo.Point{{TS: time.Now().Add(-time.Hour).UnixMilli(), Lat: 52.5, Lon: 13.4}})
+
+	if resp, _ := do(t, "POST", ts.URL+"/api/v1/exports", tok, `{"format":"nope"}`); resp.StatusCode != 400 {
+		t.Fatalf("bad format: %d", resp.StatusCode)
+	}
+	resp, created := do(t, "POST", ts.URL+"/api/v1/exports", tok, `{"format":"gpx"}`)
+	if resp.StatusCode != 202 {
+		t.Fatalf("queue export: %d", resp.StatusCode)
+	}
+	id := int64(created["id"].(float64))
+	dl := fmt.Sprintf("%s/api/v1/exports/%d/download", ts.URL, id)
+	if resp, _ := do(t, "GET", dl, tok, ""); resp.StatusCode != 404 {
+		t.Fatalf("download before it is built: %d", resp.StatusCode)
+	}
+	e, _ := db.NextExport(ctx)
+	if e == nil || e.ID != id {
+		t.Fatalf("next export = %+v", e)
+	}
+	s.runExport(ctx, e)
+	req, _ := http.NewRequest("GET", dl, nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	r, err := http.DefaultClient.Do(req)
+	if err != nil || r.StatusCode != 200 {
+		t.Fatalf("download: %v %v", err, r)
+	}
+	var body strings.Builder
+	io.Copy(&body, r.Body)
+	r.Body.Close()
+	if !strings.Contains(body.String(), "<gpx") || !strings.Contains(body.String(), "52.5") {
+		t.Fatalf("export content: %.200s", body.String())
+	}
+	if resp, _ := do(t, "DELETE", fmt.Sprintf("%s/api/v1/exports/%d", ts.URL, id), tok, ""); resp.StatusCode != 204 {
+		t.Fatalf("delete export: %d", resp.StatusCode)
+	}
+	s.cleanExports(ctx)
+	if _, err := os.Stat(s.exportPath(id, "gpx")); err == nil {
+		t.Fatal("export file survived deletion")
+	}
+
+	// Changing the email needs the current password; other edits don't.
+	if resp, _ := do(t, "PATCH", ts.URL+"/api/v1/me", tok, `{"email":"new@example.com"}`); resp.StatusCode != 403 {
+		t.Fatalf("email change without password: %d", resp.StatusCode)
+	}
+	if resp, _ := do(t, "PATCH", ts.URL+"/api/v1/me", tok, `{"email":"new@example.com","password":"correct horse"}`); resp.StatusCode != 200 {
+		t.Fatalf("email change with password: %d", resp.StatusCode)
+	}
+	if resp, _ := do(t, "PATCH", ts.URL+"/api/v1/me", tok, `{"name":"Ana S","email":"new@example.com"}`); resp.StatusCode != 200 {
+		t.Fatalf("name change: %d", resp.StatusCode)
+	}
+
+	// Notification tokens never come back in clear text, and the mask keeps the stored one.
+	do(t, "PUT", ts.URL+"/api/v1/me/notifications", tok, `{"telegram":{"enabled":true,"token":"123:SECRET","chat_id":"9"}}`)
+	_, n := do(t, "GET", ts.URL+"/api/v1/me/notifications", tok, "")
+	if n["prefs"].(map[string]any)["telegram"].(map[string]any)["token"] != secretMask {
+		t.Fatalf("telegram token leaked: %v", n["prefs"])
+	}
+	do(t, "PUT", ts.URL+"/api/v1/me/notifications", tok, `{"telegram":{"enabled":true,"token":"`+secretMask+`","chat_id":"9"}}`)
+	if raw, _ := db.UserNotify(ctx, u.ID); !strings.Contains(string(raw), "123:SECRET") {
+		t.Fatalf("stored token lost: %s", raw)
 	}
 }

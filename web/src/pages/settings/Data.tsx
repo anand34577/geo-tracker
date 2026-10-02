@@ -1,9 +1,9 @@
 import { useRef, useState, type DragEvent } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { CheckCircle2, CircleAlert, Download, FileUp, Loader2, RefreshCw, Trash2, Undo2 } from "lucide-react";
+import { CheckCircle2, CircleAlert, Download, FileUp, Loader2, PackagePlus, RefreshCw, Trash2, Undo2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { api, queryClient, upload, type Import, type PointStats } from "../../lib/api";
-import { dateTime, number } from "../../lib/format";
+import { api, queryClient, upload, type DataExport, type Import, type PointStats } from "../../lib/api";
+import { bytes, dateTime, number } from "../../lib/format";
 import { usePrefs } from "../../lib/prefs";
 import { Button, ConfirmDialog, Field, Section, cn, useToast } from "../../components/ui";
 import { RangePicker, Select, presetRange, rangeLabel, type Range } from "../../components/controls";
@@ -114,7 +114,7 @@ function ImportSection() {
                   {dateTime(i.created_at, clock)}
                 </p>
               </div>
-              {i.status === "done" && i.added > 0 && (
+              {i.status !== "running" && (i.added > 0 || i.status === "queued") && (
                 <Button size="sm" variant="ghost" icon={Undo2} onClick={() => setUndoing(i)}>{t("data.undo")}</Button>
               )}
             </li>
@@ -127,15 +127,35 @@ function ImportSection() {
   );
 }
 
+const formatLabels = { native: "GeoTracker", gpx: "GPX", geojson: "GeoJSON", csv: "CSV" } as const;
+
+/** Exports are built in the background (they can be big); download them when they are ready. */
 function ExportSection() {
   const { t } = useTranslation();
+  const toast = useToast();
+  const { clock } = usePrefs();
   const [format, setFormat] = useState<"native" | "gpx" | "geojson" | "csv">("native");
   const [range, setRange] = useState<Range>(() => presetRange("all"));
-  const qs = new URLSearchParams({ format });
-  if (range.preset !== "all") {
-    qs.set("from", String(range.from));
-    qs.set("to", String(range.to));
-  }
+  const [removing, setRemoving] = useState<DataExport | null>(null);
+  const exports = useQuery({
+    queryKey: ["exports"],
+    queryFn: () => api<DataExport[]>("/exports"),
+    refetchInterval: (q) => (q.state.data?.some((e) => e.status === "queued" || e.status === "running") ? 2000 : false),
+  });
+  const create = useMutation({
+    mutationFn: () => api("/exports", { method: "POST", body: { format, ...(range.preset !== "all" ? { from: range.from, to: range.to } : {}) } }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["exports"] });
+      toast("success", t("data.exportQueued"));
+    },
+  });
+  const remove = useMutation({
+    mutationFn: (e: DataExport) => api(`/exports/${e.id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["exports"] });
+      setRemoving(null);
+    },
+  });
   return (
     <Section title={t("data.exportTitle")} description={t("data.exportDesc")}>
       <div className="grid gap-4 sm:grid-cols-2">
@@ -151,9 +171,39 @@ function ExportSection() {
         </Field>
         <Field label={t("data.period")}>{() => <RangePicker label={t("data.period")} value={range} onChange={setRange} />}</Field>
       </div>
-      <a href={`/api/v1/export?${qs}`} download className="mt-5 inline-block">
-        <Button variant="primary" icon={Download} tabIndex={-1}>{t("data.download")}</Button>
-      </a>
+      <div className="mt-5 flex flex-wrap items-center gap-3">
+        <Button variant="primary" icon={PackagePlus} loading={create.isPending} onClick={() => create.mutate()}>{t("data.createExport")}</Button>
+        <p className="text-sm text-muted">{t("data.exportBackground")}</p>
+      </div>
+      {!!exports.data?.length && (
+        <ul className="mt-5 divide-y divide-border border-t border-border">
+          {exports.data.map((e) => (
+            <li key={e.id} className="flex flex-wrap items-center gap-3 py-3">
+              {e.status === "done" ? <CheckCircle2 className="size-5 text-success" aria-hidden /> : e.status === "failed" ? <CircleAlert className="size-5 text-danger" aria-hidden /> : <Loader2 className="size-5 animate-spin text-primary" aria-hidden />}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">
+                  {formatLabels[e.format]} · {e.from != null ? rangeLabel({ from: e.from, to: e.to! }) : t("data.allTime")}
+                </p>
+                <p className="text-xs text-muted">
+                  {e.status === "failed" ? e.error : t(`data.exportStatus.${e.status}`, { size: bytes(e.size) })}
+                  {" · "}
+                  {dateTime(e.created_at, clock)}
+                </p>
+              </div>
+              {e.status === "done" && (
+                <a href={`/api/v1/exports/${e.id}/download`} download>
+                  <Button size="sm" variant="primary" icon={Download} tabIndex={-1}>{t("data.download")}</Button>
+                </a>
+              )}
+              {e.status !== "running" && (
+                <Button size="icon" variant="ghost" className="size-8" aria-label={t("common.delete")} onClick={() => setRemoving(e)}><Trash2 className="size-4" /></Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <ConfirmDialog open={!!removing} onClose={() => setRemoving(null)} onConfirm={() => removing && remove.mutate(removing)} loading={remove.isPending}
+        title={t("data.exportRemoveTitle")} body={t("data.exportRemoveBody")} confirmLabel={t("common.delete")} />
     </Section>
   );
 }
@@ -207,11 +257,15 @@ function RetentionSection() {
   const { t } = useTranslation();
   const toast = useToast();
   const q = useQuery({ queryKey: ["retention"], queryFn: () => api<{ days: number }>("/me/retention") });
+  const [pending, setPending] = useState<number | null>(null);
+  // Shortening the period deletes points for good, so it is confirmed; keeping more is not.
+  const choose = (days: number) => (days > 0 && (q.data?.days === 0 || days < q.data!.days) ? setPending(days) : save.mutate(days));
   const save = useMutation({
     mutationFn: (days: number) => api<{ days: number }>("/me/retention", { method: "PUT", body: { days } }),
     onSuccess: (r) => {
       queryClient.setQueryData(["retention"], r);
       toast("success", t("settings.saved"));
+      setPending(null);
     },
     onError: (e) => toast("error", e.message),
   });
@@ -221,10 +275,12 @@ function RetentionSection() {
         <Field label={t("data.keepRaw")} hint={t("data.retentionHint")}>
           {(id) => (
             <Select id={id} label={t("data.keepRaw")} value={String(q.data?.days ?? 0) as (typeof retention)[number]} disabled={!q.data}
-              onChange={(v) => save.mutate(Number(v))} options={retention.map((d) => ({ value: d, label: t(`data.keep.${d}`) }))} />
+              onChange={(v) => choose(Number(v))} options={retention.map((d) => ({ value: d, label: t(`data.keep.${d}`) }))} />
           )}
         </Field>
       </div>
+      <ConfirmDialog open={pending !== null} onClose={() => setPending(null)} onConfirm={() => pending && save.mutate(pending)} loading={save.isPending} typeToConfirm="delete"
+        title={t("data.retentionConfirmTitle")} body={t("data.retentionConfirmBody", { period: t(`data.keep.${pending ?? 0}`) })} confirmLabel={t("data.retentionConfirm")} />
     </Section>
   );
 }

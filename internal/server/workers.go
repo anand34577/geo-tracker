@@ -27,8 +27,12 @@ func (s *Server) Run(ctx context.Context) error {
 	if err := s.db.RequeueImports(ctx); err != nil {
 		return err
 	}
+	if err := s.db.RequeueExports(ctx); err != nil {
+		return err
+	}
 	go s.timelineLoop(ctx)
 	go s.importLoop(ctx)
+	go s.exportLoop(ctx)
 	go s.maintenanceLoop(ctx)
 	return nil
 }
@@ -45,7 +49,7 @@ func (s *Server) wake(ch chan struct{}) {
 func (s *Server) timelineLoop(ctx context.Context) {
 	tick := time.NewTicker(30 * time.Second)
 	defer tick.Stop()
-	failed := map[int64]bool{} // visits the geocoder could not resolve this run
+	failed := map[int64]time.Time{} // visit → when the geocoder last failed on it
 	for {
 		s.processTimelines(ctx)
 		s.geocodeVisits(ctx, failed)
@@ -96,7 +100,7 @@ func (s *Server) rebuild(ctx context.Context, userID, dirtyFrom int64) error {
 
 // geocodeVisits names visits from the shared cache first, then the configured provider
 // at most ~1 request/second (Nominatim's usage policy).
-func (s *Server) geocodeVisits(ctx context.Context, failed map[int64]bool) {
+func (s *Server) geocodeVisits(ctx context.Context, failed map[int64]time.Time) {
 	st, err := s.db.Settings(ctx)
 	if err != nil || st["geocoder"] == "none" {
 		return
@@ -106,12 +110,14 @@ func (s *Server) geocodeVisits(ctx context.Context, failed map[int64]bool) {
 		slog.Error("geocode: list", "err", err)
 		return
 	}
-	if len(failed) > 10_000 {
-		clear(failed)
+	for id, at := range failed { // retry an hour later: the provider may have been down
+		if time.Since(at) > time.Hour {
+			delete(failed, id)
+		}
 	}
 	calls, errs := 0, 0
 	for _, v := range visits {
-		if failed[v.ID] || ctx.Err() != nil {
+		if _, skip := failed[v.ID]; skip || ctx.Err() != nil {
 			continue
 		}
 		if id, ok, err := s.db.GeocodeNear(ctx, v.Lat, v.Lon, 40); err == nil && ok {
@@ -130,7 +136,7 @@ func (s *Server) geocodeVisits(ctx context.Context, failed map[int64]bool) {
 		res, err := s.geo.Reverse(ctx, st["geocoder"], st["geocoder_url"], v.Lat, v.Lon)
 		if err != nil {
 			errs++
-			failed[v.ID] = true
+			failed[v.ID] = time.Now()
 			slog.Warn("geocode failed", "provider", st["geocoder"], "err", err)
 			continue
 		}
@@ -236,6 +242,7 @@ func (s *Server) maintenanceLoop(ctx context.Context) {
 			slog.Info("retention removed old points", "points", n)
 		}
 		s.db.PruneAudit(ctx)
+		s.cleanExports(ctx)
 	}
 	housekeeping()
 	for i := 1; ; i++ {
