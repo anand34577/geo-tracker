@@ -1,6 +1,6 @@
 // GeoTracker service worker: makes the app installable and opens it offline.
 // Only the app shell is cached. API responses (location data) are never cached.
-const CACHE = "gt-shell-v1";
+const CACHE = "gt-shell-v2"; // bumped so the fixed worker replaces cached state
 
 self.addEventListener("install", () => self.skipWaiting());
 
@@ -22,7 +22,8 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/assets/")) {
     event.respondWith(
       caches.match(req).then((hit) => hit || fetch(req).then((res) => {
-        if (res.ok) caches.open(CACHE).then((c) => c.put(req, res.clone()));
+        // Clone now: by the time the cache opens, the page has already consumed the body.
+        if (res.ok) { const copy = res.clone(); event.waitUntil(caches.open(CACHE).then((c) => c.put(req, copy))); }
         return res;
       })),
     );
@@ -33,7 +34,7 @@ self.addEventListener("fetch", (event) => {
   if (req.mode === "navigate") {
     event.respondWith(
       fetch(req).then((res) => {
-        if (res.ok) caches.open(CACHE).then((c) => c.put("/", res.clone()));
+        if (res.ok) { const copy = res.clone(); event.waitUntil(caches.open(CACHE).then((c) => c.put("/", copy))); }
         return res;
       }).catch(() => caches.match("/")),
     );
