@@ -1,0 +1,9 @@
+export function Logo({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 32 32" className={className} aria-hidden>
+      <rect width="32" height="32" rx="8" className="fill-primary" />
+      <path d="M16 6a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7Z" className="fill-primary-fg" />
+      <circle cx="16" cy="13" r="2.6" className="fill-primary" />
+    </svg>
+  );
+}

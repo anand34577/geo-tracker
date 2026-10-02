@@ -1,0 +1,131 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "maplibre-gl/dist/maplibre-gl.css";
+
+/* Semantic tokens: components use roles, never raw colors (spec §6.4). */
+:root {
+  --bg: #fafaf9;
+  --surface: #ffffff;
+  --surface-2: #f5f5f4;
+  --surface-3: #e7e5e4;
+  --fg: #1c1917;
+  --fg-muted: #57534e;
+  --fg-subtle: #78716c;
+  --border: #e7e5e4;
+  --border-strong: #d6d3d1;
+  --danger: #b91c1c;
+  --danger-subtle: #fef2f2;
+  --success: #15803d;
+  --warning: #b45309;
+  --warning-subtle: #fffbeb;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 4px 16px rgb(0 0 0 / 0.06);
+  /* accent (teal default) */
+  --primary: #0d9488;
+  --primary-hover: #0f766e;
+  --primary-fg: #ffffff;
+  --primary-subtle: #effcf9;
+  /* The sidebar is "ink" in both themes: calm chrome, content stays the focus. */
+  --side: #101316;
+  --side-fg: #e8ebee;
+  --side-muted: #8b949e;
+  --side-hover: #1b2025;
+  --side-active: #232a31;
+  --side-border: #1f252b;
+  color-scheme: light;
+}
+
+:root.dark {
+  --bg: #0c0a09;
+  --surface: #171412;
+  --surface-2: #211e1c;
+  --surface-3: #2e2a27;
+  --fg: #fafaf9;
+  --fg-muted: #b8b2ad;
+  --fg-subtle: #928b85;
+  --border: #2a2624;
+  --border-strong: #3d3835;
+  --danger: #f87171;
+  --danger-subtle: #2a1414;
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --warning-subtle: #2a2110;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.35);
+  --primary: #2dd4bf;
+  --primary-hover: #5eead4;
+  --primary-fg: #042f2e;
+  --primary-subtle: #0d2a27;
+  --side: #0a0c0e;
+  --side-hover: #151a1e;
+  --side-active: #1c2328;
+  --side-border: #161b1f;
+  color-scheme: dark;
+}
+
+/* Accent presets */
+:root[data-accent="blue"] { --primary: #2563eb; --primary-hover: #1e40af; --primary-subtle: #eff6ff; }
+:root.dark[data-accent="blue"] { --primary: #60a5fa; --primary-hover: #93c5fd; --primary-fg: #0b1a33; --primary-subtle: #0f1d33; }
+:root[data-accent="rose"] { --primary: #be123c; --primary-hover: #9f1239; --primary-subtle: #fff1f2; }
+:root.dark[data-accent="rose"] { --primary: #fb7185; --primary-hover: #fda4af; --primary-fg: #33060f; --primary-subtle: #2f0f16; }
+:root[data-accent="amber"] { --primary: #b45309; --primary-hover: #92400e; --primary-subtle: #fffbeb; }
+:root.dark[data-accent="amber"] { --primary: #fbbf24; --primary-hover: #fcd34d; --primary-fg: #2b1a02; --primary-subtle: #2a2110; }
+:root[data-accent="green"] { --primary: #15803d; --primary-hover: #166534; --primary-subtle: #f0fdf4; }
+:root.dark[data-accent="green"] { --primary: #4ade80; --primary-hover: #86efac; --primary-fg: #052e16; --primary-subtle: #0d2616; }
+:root[data-accent="slate"] { --primary: #334155; --primary-hover: #1e293b; --primary-subtle: #f1f5f9; }
+:root.dark[data-accent="slate"] { --primary: #cbd5e1; --primary-hover: #e2e8f0; --primary-fg: #0f172a; --primary-subtle: #1e242d; }
+
+@theme inline {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-fg: var(--fg);
+  --color-muted: var(--fg-muted);
+  --color-subtle: var(--fg-subtle);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-fg: var(--primary-fg);
+  --color-primary-subtle: var(--primary-subtle);
+  --color-danger: var(--danger);
+  --color-danger-subtle: var(--danger-subtle);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-warning-subtle: var(--warning-subtle);
+  --shadow-pop: var(--shadow);
+  --color-side: var(--side);
+  --color-side-fg: var(--side-fg);
+  --color-side-muted: var(--side-muted);
+  --color-side-hover: var(--side-hover);
+  --color-side-active: var(--side-active);
+  --color-side-border: var(--side-border);
+}
+
+@layer base {
+  html, body, #root { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 6px; }
+  ::selection { background: var(--primary-subtle); }
+  dialog::backdrop { background: rgb(0 0 0 / 0.45); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* MapLibre controls follow the theme */
+.maplibregl-ctrl-group { background: var(--surface) !important; border: 1px solid var(--border); box-shadow: var(--shadow) !important; }
+.maplibregl-ctrl-group button + button { border-top-color: var(--border) !important; }
+.dark .maplibregl-ctrl-group button .maplibregl-ctrl-icon { filter: invert(1); }
+.maplibregl-ctrl-attrib { background: color-mix(in srgb, var(--surface) 80%, transparent) !important; color: var(--fg-muted); }
+.maplibregl-ctrl-attrib a { color: var(--fg-muted) !important; }
+.dark .maplibregl-ctrl-attrib-button { filter: invert(1); }
+/* Touch screens pinch to zoom; the +/- buttons would only sit under the floating cards. */
+@media (pointer: coarse) { .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group { display: none; } }

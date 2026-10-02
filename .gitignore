@@ -1,0 +1,15 @@
+# runtime data (database, backups, uploads)
+/data/
+/data-*/
+
+# build output (the UI must be built before `go build`; see Makefile)
+/geotracker
+/geotracker.exe
+/dist/
+web/node_modules/
+web/dist/
+
+.env
+.DS_Store
+
+web/tsconfig.tsbuildinfo

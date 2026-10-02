@@ -1,0 +1,28 @@
+# systemd unit for running the binary without Docker (e.g. on a Raspberry Pi).
+#   sudo useradd --system --home /var/lib/geotracker --create-home geotracker
+#   sudo cp geotracker /usr/local/bin/ && sudo cp geotracker.service /etc/systemd/system/
+#   sudo systemctl enable --now geotracker
+[Unit]
+Description=GeoTracker location timeline
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=geotracker
+Group=geotracker
+Environment=GT_DATA_DIR=/var/lib/geotracker
+Environment=GT_LISTEN=127.0.0.1:8080
+Environment=GT_BASE_URL=https://track.example.com
+ExecStart=/usr/local/bin/geotracker serve
+Restart=always
+RestartSec=2
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/geotracker
+
+[Install]
+WantedBy=multi-user.target

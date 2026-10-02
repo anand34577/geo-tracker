@@ -1,0 +1,69 @@
+name: Release
+
+# Pushing a tag like v0.1.0 builds standalone binaries for every platform and attaches
+# them to a GitHub Release. The Docker image is published by ci.yml on the same tag.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: lts/*, cache: npm, cache-dependency-path: web/package-lock.json }
+      - run: npm ci --no-audit --no-fund && npm run build
+        working-directory: web
+      - uses: actions/upload-artifact@v4
+        with: { name: web-dist, path: web/dist, retention-days: 1 }
+
+  binaries:
+    needs: web
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { goos: linux,   goarch: amd64,             name: geotracker-linux-amd64 }
+          - { goos: linux,   goarch: arm64,             name: geotracker-linux-arm64 }
+          - { goos: linux,   goarch: arm, goarm: "7",   name: geotracker-linux-armv7 }
+          - { goos: darwin,  goarch: arm64,             name: geotracker-darwin-arm64 }
+          - { goos: darwin,  goarch: amd64,             name: geotracker-darwin-amd64 }
+          - { goos: windows, goarch: amd64,             name: geotracker-windows-amd64.exe }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - uses: actions/download-artifact@v4
+        with: { name: web-dist, path: web/dist }
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+        run: go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_REF_NAME#v}" -o "dist/${{ matrix.name }}" ./cmd/geotracker
+      - uses: actions/upload-artifact@v4
+        with: { name: "${{ matrix.name }}", path: "dist/${{ matrix.name }}", retention-days: 1 }
+
+  release:
+    needs: binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { path: dist, pattern: geotracker-*, merge-multiple: true }
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum geotracker-* > SHA256SUMS && cat SHA256SUMS
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp scripts/install.sh dist/install.sh
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "GeoTracker ${GITHUB_REF_NAME#v}" --generate-notes \
+            --notes "Install: see the [wiki](https://github.com/${{ github.repository }}/wiki). Linux one-liner: \`curl -fsSL https://github.com/${{ github.repository }}/releases/latest/download/install.sh | sudo sh\`"

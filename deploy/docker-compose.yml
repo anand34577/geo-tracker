@@ -1,0 +1,32 @@
+# Minimal production setup: GeoTracker behind Caddy (automatic HTTPS).
+# 1. Point a DNS record (e.g. track.example.com) at this machine.
+# 2. Copy .env.example to .env and set GT_BASE_URL; edit the domain in Caddyfile.
+# 3. mkdir -p data && sudo chown 65532:65532 data   (the container runs as an unprivileged user)
+# 4. docker compose up -d   → open https://track.example.com
+services:
+  geotracker:
+    # Pinned to a minor version: patch releases arrive on `docker compose pull`, upgrades are deliberate.
+    image: ghcr.io/anand34577/geo-tracker:0.1
+    restart: unless-stopped # also applies restores started from the UI
+    env_file: .env
+    environment:
+      GT_TRUSTED_PROXIES: 172.16.0.0/12 # Docker networks; lets GeoTracker see real client IPs
+    volumes:
+      - ./data:/data # database, backups, uploads: back up this folder
+    # No ports: only Caddy is exposed. For a LAN-only test instead, remove Caddy and add:
+    # ports: ["8080:8080"]
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on: [geotracker]
+
+volumes:
+  caddy_data:

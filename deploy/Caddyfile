@@ -1,0 +1,7 @@
+# Caddy gets and renews the HTTPS certificate automatically.
+track.example.com {
+	encode zstd gzip
+	reverse_proxy geotracker:8080 {
+		flush_interval -1 # stream live updates (Server-Sent Events) immediately
+	}
+}
