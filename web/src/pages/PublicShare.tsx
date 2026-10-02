@@ -29,7 +29,7 @@ type PublicShareData = {
 export default function PublicShare() {
   const { t } = useTranslation();
   const { token } = useParams();
-  useEffect(() => applyPrefs(cachedPrefs()), []);
+  useEffect(() => { applyPrefs(cachedPrefs()); }, []);
   const opened = useRef(false); // the first load counts as a view, live refreshes don't
   const q = useQuery({
     queryKey: ["public-share", token],

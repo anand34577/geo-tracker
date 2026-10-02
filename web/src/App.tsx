@@ -134,7 +134,7 @@ function Sidebar({ onSearch }: { onSearch: () => void }) {
   const loc = useLocation();
   const accountBtn = useRef<HTMLButtonElement>(null);
   const [menu, setMenu] = useState(false);
-  useEffect(() => setMenu(false), [loc.pathname]);
+  useEffect(() => { setMenu(false); }, [loc.pathname]);
 
   const item = ({ isActive }: { isActive: boolean }) =>
     cn(
@@ -210,7 +210,7 @@ function MobileNav({ onSearch }: { onSearch: () => void }) {
   const loc = useLocation();
   const moreBtn = useRef<HTMLButtonElement>(null);
   const [more, setMore] = useState(false);
-  useEffect(() => setMore(false), [loc.pathname]);
+  useEffect(() => { setMore(false); }, [loc.pathname]);
   const tabs = [primaryNav[0], primaryNav[1], primaryNav[2], primaryNav[3]]; // map, timeline, family, insights
   const moreActive = !tabs.some((n) => (n.end ? loc.pathname === n.to : loc.pathname.startsWith(n.to)));
   const tabClass = (active: boolean) => cn("flex flex-col items-center justify-center gap-1 text-[11px] font-medium", active ? "text-primary" : "text-muted");

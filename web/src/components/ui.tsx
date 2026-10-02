@@ -248,7 +248,7 @@ export function ConfirmDialog({ open, onClose, onConfirm, title, body, confirmLa
 }) {
   const { t } = useTranslation();
   const [typed, setTyped] = useState("");
-  useEffect(() => setTyped(""), [open]);
+  useEffect(() => { setTyped(""); }, [open]);
   const ok = !typeToConfirm || typed.trim().toLowerCase() === typeToConfirm.toLowerCase();
   return (
     <Dialog
@@ -290,7 +290,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts((ts) => [...ts.slice(-2), { id, tone, text }]);
     setTimeout(() => setToasts((ts) => ts.filter((t) => t.id !== id)), tone === "error" ? 7000 : 4000);
   }, []);
-  useEffect(() => setErrorToast((text) => push("error", text)), [push]);
+  useEffect(() => { setErrorToast((text) => push("error", text)); }, [push]);
   return (
     <ToastCtx.Provider value={push}>
       {children}
