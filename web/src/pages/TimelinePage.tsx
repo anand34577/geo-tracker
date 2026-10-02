@@ -240,7 +240,7 @@ function VisitItem({ v, bounds, active, clock, onSelect, onSave }: { v: Visit; b
             <span className="block truncate font-medium">{title}</span>
             {sub && <span className="block truncate text-sm text-muted">{sub}</span>}
             <span className="mt-0.5 block text-sm text-subtle tabular-nums">
-              {time(start, clock)} – {end === bounds[1] ? "24:00" : time(end, clock)} · {duration(end - start)}
+              {time(start, clock)} – {end === bounds[1] ? (clock === "12h" ? "12:00 AM" : "24:00") : time(end, clock)} · {duration(end - start)}
             </span>
           </span>
         </button>

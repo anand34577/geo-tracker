@@ -124,7 +124,7 @@
 .maplibregl-ctrl-group { background: var(--surface) !important; border: 1px solid var(--border); box-shadow: var(--shadow) !important; }
 .maplibregl-ctrl-group button + button { border-top-color: var(--border) !important; }
 .dark .maplibregl-ctrl-group button .maplibregl-ctrl-icon { filter: invert(1); }
-.maplibregl-ctrl-attrib { background: color-mix(in srgb, var(--surface) 80%, transparent) !important; color: var(--fg-muted); }
+.maplibregl-ctrl-attrib { background: color-mix(in srgb, var(--surface) 80%, transparent) !important; color: var(--fg-muted) !important; }
 .maplibregl-ctrl-attrib a { color: var(--fg-muted) !important; }
 .dark .maplibregl-ctrl-attrib-button { filter: invert(1); }
 /* Touch screens pinch to zoom; the +/- buttons would only sit under the floating cards. */

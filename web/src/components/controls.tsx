@@ -520,7 +520,8 @@ export function DatePicker({ value, onChange, marked, onMonthChange, maxDate, la
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [month, setMonth] = useState(startOfMonth(value));
-  useEffect(() => setMonth(startOfMonth(value)), [value]);
+  // Keyed on the time, not the object: callers often pass a fresh Date each render.
+  useEffect(() => setMonth(startOfMonth(value)), [value.getTime()]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => onMonthChange?.(month), [month]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <>
