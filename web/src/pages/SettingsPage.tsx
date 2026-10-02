@@ -43,15 +43,20 @@ function ProfileTab() {
   const toast = useToast();
   const [profile, setProfile] = useState({ name: user.name, email: user.email });
   const [pw, setPw] = useState({ current: "", new: "" });
+  const [emailPw, setEmailPw] = useState("");
+  const emailChanged = profile.email.trim().toLowerCase() !== user.email;
 
   const saveProfile = useMutation({
-    mutationFn: () => api<User>("/me", { method: "PATCH", body: profile }),
+    meta: { inline: true }, // error shown in the form
+    mutationFn: () => api<User>("/me", { method: "PATCH", body: { ...profile, password: emailPw } }),
     onSuccess: (u) => {
       queryClient.setQueryData(["me"], u);
+      setEmailPw("");
       toast("success", t("settings.saved"));
     },
   });
   const savePw = useMutation({
+    meta: { inline: true }, // error shown in the form
     mutationFn: () => api("/me/password", { method: "POST", body: pw }),
     onSuccess: () => {
       setPw({ current: "", new: "" });
@@ -71,8 +76,13 @@ function ProfileTab() {
           <Field label={t("auth.email")} error={saveProfile.error?.message}>
             {(id) => <Input id={id} type="email" value={profile.email} onChange={(e) => setProfile({ ...profile, email: e.target.value })} autoComplete="email" />}
           </Field>
+          {emailChanged && (
+            <Field label={t("settings.confirmWithPassword")} hint={t("settings.confirmEmailHint")}>
+              {(id, d) => <Input id={id} aria-describedby={d} type="password" autoComplete="current-password" value={emailPw} onChange={(e) => setEmailPw(e.target.value)} />}
+            </Field>
+          )}
           <div>
-            <Button variant="primary" type="submit" loading={saveProfile.isPending}>{t("common.save")}</Button>
+            <Button variant="primary" type="submit" loading={saveProfile.isPending} disabled={emailChanged && !emailPw}>{t("common.save")}</Button>
           </div>
         </form>
       </Section>

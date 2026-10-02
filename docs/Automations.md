@@ -17,7 +17,7 @@ Rules only ever act for their owner. They run on the server, so they work while 
 |---|---|
 | **Tell family** | Sends a notification to chosen people from your family groups, on the channels they set up. They can only be people who share an active group with you; if someone leaves the group they stop receiving it. |
 | **Notify me** | Sends a message to you on the channels you turned on in Settings → Notifications (email, Gotify, ntfy, Telegram). |
-| **Webhook** | Calls any URL (GET, POST or PUT) with an optional JSON body and headers. Works with Home Assistant, n8n, Node-RED, IFTTT, Zapier, Make and your own scripts. |
+| **Webhook** | Calls any URL (GET, POST or PUT) with an optional JSON body and headers. Works with Home Assistant, n8n, Node-RED, IFTTT, Zapier, Make and your own scripts. | Addresses on your own network are allowed on purpose (that is how Home Assistant works), so only give automations to people you trust; link-local and cloud-metadata addresses are always blocked.
 | **ntfy** | Push notification through [ntfy](https://ntfy.sh) or your own ntfy server. |
 | **Telegram** | A message from your own bot to a chat. |
 | **Discord** | Posts to a channel through a Discord webhook. |

@@ -1,4 +1,4 @@
-import { QueryClient, useQuery } from "@tanstack/react-query";
+import { MutationCache, QueryClient, useQuery } from "@tanstack/react-query";
 
 // ── Types (mirror the Go structs) ────────────────────────────
 
@@ -127,6 +127,7 @@ export type Place = {
   lat: number;
   lon: number;
   radius: number;
+  private: boolean;
   created_at: number;
   visits: number;
   total_ms: number;
@@ -150,6 +151,18 @@ export type Import = {
   added: number;
   duplicates: number;
   rejected: number;
+  error?: string;
+  created_at: number;
+  finished_at: number | null;
+};
+
+export type DataExport = {
+  id: number;
+  format: "native" | "gpx" | "geojson" | "csv";
+  from: number | null;
+  to: number | null;
+  status: "queued" | "running" | "done" | "failed";
+  size: number;
   error?: string;
   created_at: number;
   finished_at: number | null;
@@ -229,7 +242,19 @@ export function upload<T>(path: string, file: File, onProgress: (fraction: numbe
   });
 }
 
+let errorToast: (message: string) => void = () => {};
+/** The toast provider registers here, so a failed action is never silent. */
+export const setErrorToast = (fn: (message: string) => void) => {
+  errorToast = fn;
+};
+
 export const queryClient = new QueryClient({
+  // Mutations that show their own error (onError, or inline via meta.inline) are skipped.
+  mutationCache: new MutationCache({
+    onError: (err, _vars, _ctx, m) => {
+      if (!m.options.onError && !m.meta?.inline) errorToast(err.message);
+    },
+  }),
   defaultOptions: {
     queries: {
       staleTime: 30_000,

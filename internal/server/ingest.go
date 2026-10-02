@@ -116,7 +116,13 @@ func (s *Server) ingest(kind string) http.HandlerFunc {
 		}
 		var battery *int
 		if len(valid) > 0 {
-			latest := valid[len(valid)-1]
+			// Batches are not always in time order; the live position is the newest fix.
+			latest := valid[0]
+			for _, p := range valid[1:] {
+				if p.TS > latest.TS {
+					latest = p
+				}
+			}
 			battery = latest.Battery
 			s.hub.Publish(userID, "point", map[string]any{"device_id": deviceID, "point": latest})
 			s.checkPointEvents(r.Context(), userID, deviceID, latest)

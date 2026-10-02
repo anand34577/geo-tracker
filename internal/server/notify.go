@@ -163,7 +163,7 @@ func (s *Server) checkPointEvents(ctx context.Context, userID, deviceID int64, p
 	s.checkFamilyAlerts(ctx, u, p)
 
 	// Battery crossing below the threshold.
-	if p.Battery != nil {
+	if p.Battery != nil && deviceID != 0 { // 0 = browser "send my location", shared by every user
 		s.notes.mu.Lock()
 		prev, known := s.notes.battery[deviceID]
 		s.notes.battery[deviceID] = *p.Battery
@@ -279,13 +279,28 @@ func (s *Server) getNotify(w http.ResponseWriter, r *http.Request, u *store.User
 		internal(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"prefs": parsePrefs(raw), "smtp_configured": s.smtpConfig(st).Configured()})
+	p := parsePrefs(raw)
+	for _, t := range []*string{&p.Gotify.Token, &p.Ntfy.Token, &p.Telegram.Token} {
+		if *t != "" {
+			*t = secretMask // tokens are write-only from the browser's point of view
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"prefs": p, "smtp_configured": s.smtpConfig(st).Configured()})
 }
 
 func (s *Server) putNotify(w http.ResponseWriter, r *http.Request, u *store.User) {
 	var p notifyPrefs
 	if !decode(w, r, &p) {
 		return
+	}
+	// A token that comes back masked is unchanged: keep the stored one.
+	if raw, err := s.db.UserNotify(r.Context(), u.ID); err == nil {
+		old := parsePrefs(raw)
+		for _, t := range []struct{ in *string; was string }{{&p.Gotify.Token, old.Gotify.Token}, {&p.Ntfy.Token, old.Ntfy.Token}, {&p.Telegram.Token, old.Telegram.Token}} {
+			if *t.in == secretMask {
+				*t.in = t.was
+			}
+		}
 	}
 	if p.Email.To != "" {
 		to, ok := cleanEmail(p.Email.To)

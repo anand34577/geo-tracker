@@ -150,6 +150,7 @@ export default function DevicesTab() {
   const [deleting, setDeleting] = useState<Device | null>(null);
 
   const create = useMutation({
+    meta: { inline: true }, // error shown in the form
     mutationFn: () => api<{ device: Device; token: string }>("/devices", { method: "POST", body: form }),
     onSuccess: (r) => {
       setCreated(r);

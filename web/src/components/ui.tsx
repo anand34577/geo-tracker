@@ -10,6 +10,7 @@ import {
   type InputHTMLAttributes,
   type ReactNode,
 } from "react";
+import { setErrorToast } from "../lib/api";
 import { AlertTriangle, CheckCircle2, Loader2, X, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -289,6 +290,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts((ts) => [...ts.slice(-2), { id, tone, text }]);
     setTimeout(() => setToasts((ts) => ts.filter((t) => t.id !== id)), tone === "error" ? 7000 : 4000);
   }, []);
+  useEffect(() => setErrorToast((text) => push("error", text)), [push]);
   return (
     <ToastCtx.Provider value={push}>
       {children}

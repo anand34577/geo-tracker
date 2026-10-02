@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -58,11 +59,11 @@ func (s *Server) getPoints(w http.ResponseWriter, r *http.Request, u *store.User
 	if r.URL.Query().Get("raw") == "1" {
 		maxAcc = 0
 	}
-	who, from, to, approx, ok := s.subject(w, r, u, from, to)
+	v, ok := s.subject(w, r, u, from, to)
 	if !ok {
 		return
 	}
-	total, err := s.db.CountPoints(r.Context(), who, from, to)
+	total, err := s.db.CountPoints(r.Context(), v.id, v.from, v.to)
 	if err != nil {
 		internal(w, r, err)
 		return
@@ -73,7 +74,10 @@ func (s *Server) getPoints(w http.ResponseWriter, r *http.Request, u *store.User
 	bw := bufio.NewWriterSize(w, 64<<10)
 	fmt.Fprintf(bw, `{"total":%d,"step":%d,"points":[`, total, step)
 	i, n := 0, 0
-	err = s.db.ForEachPoint(r.Context(), who, from, to, maxAcc, func(p geo.Point) error {
+	err = s.db.ForEachPoint(r.Context(), v.id, v.from, v.to, maxAcc, func(p geo.Point) error {
+		if v.hidden(p.Lat, p.Lon) {
+			return nil
+		}
 		i++
 		if (i-1)%step != 0 {
 			return nil
@@ -83,7 +87,7 @@ func (s *Server) getPoints(w http.ResponseWriter, r *http.Request, u *store.User
 		}
 		n++
 		row, _ := json.Marshal([]any{p.TS, p.Lat, p.Lon, p.Accuracy, p.Speed, p.Altitude, p.Battery})
-		if approx {
+		if v.approx {
 			row, _ = json.Marshal([]any{p.TS, coarsen(p.Lat), coarsen(p.Lon), nil, nil, nil, nil})
 		}
 		_, err := bw.Write(row)
@@ -158,11 +162,11 @@ func (s *Server) getTimeline(w http.ResponseWriter, r *http.Request, u *store.Us
 		fail(w, http.StatusBadRequest, "invalid from/to")
 		return
 	}
-	who, from, to, approx, ok := s.subject(w, r, u, from, to)
+	sv, ok := s.subject(w, r, u, from, to)
 	if !ok {
 		return
 	}
-	visits, trips, err := s.db.Timeline(r.Context(), who, from, to)
+	visits, trips, err := s.db.Timeline(r.Context(), sv.id, sv.from, sv.to)
 	if err != nil {
 		internal(w, r, err)
 		return
@@ -173,15 +177,19 @@ func (s *Server) getTimeline(w http.ResponseWriter, r *http.Request, u *store.Us
 		internal(w, r, err)
 		return
 	}
-	out := make([]visitOut, len(visits))
-	for i, v := range visits {
-		if approx {
+	out := make([]visitOut, 0, len(visits))
+	for _, v := range visits {
+		if sv.hidden(v.Lat, v.Lon) {
+			continue
+		}
+		if sv.approx {
 			v.Name, v.Address, v.Lat, v.Lon, v.Radius = v.City, "", coarsen(v.Lat), coarsen(v.Lon), 1000
 		}
-		out[i] = visitOut{VisitRow: v}
-		if p := matchPlace(places, v.Lat, v.Lon); p != nil && !approx {
-			out[i].PlaceID, out[i].PlaceName, out[i].PlaceIcon = p.ID, p.Name, p.Icon
+		o := visitOut{VisitRow: v}
+		if p := matchPlace(places, v.Lat, v.Lon); p != nil && !sv.approx {
+			o.PlaceID, o.PlaceName, o.PlaceIcon = p.ID, p.Name, p.Icon
 		}
+		out = append(out, o)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"visits": out, "trips": trips})
 }
@@ -439,6 +447,38 @@ func (s *Server) deleteImport(w http.ResponseWriter, r *http.Request, u *store.U
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// writeExport streams one export format to w. Used by the direct download and the background job.
+func (s *Server) writeExport(ctx context.Context, w io.Writer, u *store.User, format string, from, to int64) error {
+	points := func(fn func(geo.Point) error) error {
+		return s.db.ForEachPoint(ctx, u.ID, from, to, 0, fn)
+	}
+	switch format {
+	case "gpx":
+		return transfer.WriteGPX(w, "GeoTracker – "+u.Name, points)
+	case "geojson":
+		return transfer.WriteGeoJSON(w, points)
+	case "csv":
+		return transfer.WriteCSV(w, points)
+	case "native":
+		places, err := s.db.Places(ctx, u.ID)
+		if err != nil {
+			return err
+		}
+		visits, trips, err := s.db.Timeline(ctx, u.ID, from, to)
+		if err != nil {
+			return err
+		}
+		tp := make([]transfer.Place, len(places))
+		for i, p := range places {
+			tp[i] = transfer.Place{Name: p.Name, Icon: p.Icon, Lat: p.Lat, Lon: p.Lon, Radius: p.Radius}
+		}
+		return transfer.WriteNative(w, s.cfg.Version, u.Email, points, tp, anys(visits), anys(trips))
+	}
+	return errors.New("unknown export format")
+}
+
+// export streams an export straight to the browser (scripts and small ranges). The UI uses
+// background exports (exports.go) so large archives don't depend on one long request.
 func (s *Server) export(w http.ResponseWriter, r *http.Request, u *store.User) {
 	format := r.URL.Query().Get("format")
 	meta, ok := transfer.Formats[format]
@@ -447,37 +487,11 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request, u *store.User) {
 		fail(w, http.StatusBadRequest, "choose a format (native, gpx, geojson, csv) and a valid range")
 		return
 	}
-	points := func(fn func(geo.Point) error) error {
-		return s.db.ForEachPoint(r.Context(), u.ID, from, to, 0, fn)
-	}
 	name := fmt.Sprintf("geotracker-%s.%s", time.Now().Format("2006-01-02"), meta[0])
 	w.Header().Set("Content-Type", meta[1])
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
 	s.audit(r, u.ID, "export", format)
-	var err error
-	switch format {
-	case "gpx":
-		err = transfer.WriteGPX(w, "GeoTracker – "+u.Name, points)
-	case "geojson":
-		err = transfer.WriteGeoJSON(w, points)
-	case "csv":
-		err = transfer.WriteCSV(w, points)
-	case "native":
-		var places []store.Place
-		var visits []store.VisitRow
-		var trips []store.TripRow
-		if places, err = s.db.Places(r.Context(), u.ID); err == nil {
-			visits, trips, err = s.db.Timeline(r.Context(), u.ID, from, to)
-		}
-		if err == nil {
-			tp := make([]transfer.Place, len(places))
-			for i, p := range places {
-				tp[i] = transfer.Place{Name: p.Name, Icon: p.Icon, Lat: p.Lat, Lon: p.Lon, Radius: p.Radius}
-			}
-			err = transfer.WriteNative(w, s.cfg.Version, u.Email, points, tp, anys(visits), anys(trips))
-		}
-	}
-	if err != nil {
+	if err := s.writeExport(r.Context(), w, u, format, from, to); err != nil {
 		internal(w, r, err)
 	}
 }
@@ -804,7 +818,7 @@ func (s *Server) downloadBackup(w http.ResponseWriter, r *http.Request, _ *store
 	http.ServeFile(w, r, p)
 }
 
-func (s *Server) deleteBackup(w http.ResponseWriter, r *http.Request, _ *store.User) {
+func (s *Server) deleteBackup(w http.ResponseWriter, r *http.Request, u *store.User) {
 	p, ok := s.db.BackupPath(r.PathValue("name"))
 	if !ok {
 		fail(w, http.StatusNotFound, "backup not found")
@@ -814,6 +828,7 @@ func (s *Server) deleteBackup(w http.ResponseWriter, r *http.Request, _ *store.U
 		internal(w, r, err)
 		return
 	}
+	s.audit(r, u.ID, "backup.delete", filepath.Base(p))
 	w.WriteHeader(http.StatusNoContent)
 }
 

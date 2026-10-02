@@ -17,6 +17,7 @@ export default function IntegrationsTab() {
     if (q.data) setUrl(q.data.immich.url);
   }, [q.data]);
   const save = useMutation({
+    meta: { inline: true }, // error shown in the form
     mutationFn: (body: { url: string; api_key: string }) => api<Resp>("/me/integrations", { method: "PUT", body: { immich: body } }),
     onSuccess: (r) => {
       queryClient.setQueryData(["integrations"], r);

@@ -326,8 +326,8 @@ func (s *Store) DeleteAlert(ctx context.Context, watcher, id int64) error {
 
 func (s *Store) PlaceByID(ctx context.Context, userID, id int64) (*Place, error) {
 	var p Place
-	err := s.R.QueryRowContext(ctx, `SELECT id, name, icon, lat, lon, radius_m, created_at FROM places WHERE id = ? AND user_id = ?`, id, userID).
-		Scan(&p.ID, &p.Name, &p.Icon, &p.Lat, &p.Lon, &p.Radius, &p.CreatedAt)
+	err := s.R.QueryRowContext(ctx, `SELECT id, name, icon, lat, lon, radius_m, private, created_at FROM places WHERE id = ? AND user_id = ?`, id, userID).
+		Scan(&p.ID, &p.Name, &p.Icon, &p.Lat, &p.Lon, &p.Radius, &p.Private, &p.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}

@@ -13,7 +13,7 @@ GeoTracker can sign people in through any OpenID Connect provider: Authelia, Aut
 ## How people are matched
 
 - Users are linked by the provider's stable `sub` claim.
-- On first sign-in, a person is matched to an existing account by **verified email**.
+- On first sign-in, a person is matched to an existing account by **verified email**. The provider must send `email_verified: true`; if the claim is missing, the account is not linked (otherwise anyone who can set an email at the provider could take over that account).
 - Turn on **Create accounts automatically** to let anyone your provider accepts sign in. Leave it off to allow only people an admin already added.
 
 ## Provider notes

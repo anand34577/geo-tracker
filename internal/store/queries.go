@@ -140,9 +140,26 @@ func (s *Store) SetPassword(ctx context.Context, userID int64, hash string, keep
 	return err
 }
 
+// DeleteUser deletes an account with all its data. Groups it owned pass to the
+// longest-standing remaining member, and groups left empty are removed.
 func (s *Store) DeleteUser(ctx context.Context, id int64) error {
-	_, err := s.W.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, id)
-	return err
+	tx, err := s.W.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM groups WHERE NOT EXISTS (SELECT 1 FROM group_members m WHERE m.group_id = groups.id)`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE group_members SET role = 'owner' WHERE rowid IN (
+		SELECT (SELECT m.rowid FROM group_members m WHERE m.group_id = g.id ORDER BY m.status = 'active' DESC, m.joined_at LIMIT 1)
+		FROM groups g WHERE NOT EXISTS (SELECT 1 FROM group_members o WHERE o.group_id = g.id AND o.role = 'owner'))`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) CountActiveAdmins(ctx context.Context) (n int, err error) {
@@ -623,11 +640,12 @@ type Place struct {
 	Lat       float64 `json:"lat"`
 	Lon       float64 `json:"lon"`
 	Radius    float64 `json:"radius"`
+	Private   bool    `json:"private"` // privacy zone: hidden from everyone else
 	CreatedAt int64   `json:"created_at"`
 }
 
 func (s *Store) Places(ctx context.Context, userID int64) ([]Place, error) {
-	rows, err := s.R.QueryContext(ctx, `SELECT id, name, icon, lat, lon, radius_m, created_at FROM places WHERE user_id = ? ORDER BY name`, userID)
+	rows, err := s.R.QueryContext(ctx, `SELECT id, name, icon, lat, lon, radius_m, private, created_at FROM places WHERE user_id = ? ORDER BY name`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -635,7 +653,7 @@ func (s *Store) Places(ctx context.Context, userID int64) ([]Place, error) {
 	out := []Place{}
 	for rows.Next() {
 		var p Place
-		if err := rows.Scan(&p.ID, &p.Name, &p.Icon, &p.Lat, &p.Lon, &p.Radius, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Icon, &p.Lat, &p.Lon, &p.Radius, &p.Private, &p.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -645,8 +663,8 @@ func (s *Store) Places(ctx context.Context, userID int64) ([]Place, error) {
 
 func (s *Store) CreatePlace(ctx context.Context, userID int64, p *Place) error {
 	p.CreatedAt = now()
-	res, err := s.W.ExecContext(ctx, `INSERT INTO places (user_id, name, icon, lat, lon, radius_m, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		userID, p.Name, p.Icon, p.Lat, p.Lon, p.Radius, p.CreatedAt)
+	res, err := s.W.ExecContext(ctx, `INSERT INTO places (user_id, name, icon, lat, lon, radius_m, private, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		userID, p.Name, p.Icon, p.Lat, p.Lon, p.Radius, p.Private, p.CreatedAt)
 	if err == nil {
 		p.ID, _ = res.LastInsertId()
 	}
@@ -654,8 +672,8 @@ func (s *Store) CreatePlace(ctx context.Context, userID int64, p *Place) error {
 }
 
 func (s *Store) UpdatePlace(ctx context.Context, userID int64, p *Place) error {
-	res, err := s.W.ExecContext(ctx, `UPDATE places SET name = ?, icon = ?, lat = ?, lon = ?, radius_m = ? WHERE id = ? AND user_id = ?`,
-		p.Name, p.Icon, p.Lat, p.Lon, p.Radius, p.ID, userID)
+	res, err := s.W.ExecContext(ctx, `UPDATE places SET name = ?, icon = ?, lat = ?, lon = ?, radius_m = ?, private = ? WHERE id = ? AND user_id = ?`,
+		p.Name, p.Icon, p.Lat, p.Lon, p.Radius, p.Private, p.ID, userID)
 	if err != nil {
 		return err
 	}
@@ -996,10 +1014,10 @@ func (s *Store) Shares(ctx context.Context, userID int64) ([]*Share, error) {
 	return out, rows.Err()
 }
 
-// ShareByToken returns an unexpired link and counts the view.
-func (s *Store) ShareByToken(ctx context.Context, hash []byte) (*Share, error) {
+// ShareByToken returns an unexpired link; countView records an opening (not a live refresh).
+func (s *Store) ShareByToken(ctx context.Context, hash []byte, countView bool) (*Share, error) {
 	sh, err := scanShare(s.R.QueryRowContext(ctx, `SELECT `+shareCols+` FROM share_links WHERE token_hash = ? AND expires_at > ?`, hash, now()))
-	if err == nil {
+	if err == nil && countView {
 		s.W.ExecContext(ctx, `UPDATE share_links SET views = views + 1 WHERE id = ?`, sh.ID)
 	}
 	return sh, err

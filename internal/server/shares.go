@@ -87,7 +87,8 @@ func (s *Server) publicShare(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusTooManyRequests, "too many requests")
 		return
 	}
-	sh, err := s.db.ShareByToken(r.Context(), hashToken(r.PathValue("token")))
+	// The page refreshes live links with ?poll=1; only the first load counts as a view.
+	sh, err := s.db.ShareByToken(r.Context(), hashToken(r.PathValue("token")), r.URL.Query().Get("poll") != "1")
 	if errors.Is(err, store.ErrNotFound) {
 		fail(w, http.StatusNotFound, "this link has expired or was revoked")
 		return
@@ -102,6 +103,12 @@ func (s *Server) publicShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	approx := sh.Precision == "approx"
+	zones, err := s.privateZones(r.Context(), sh.UserID)
+	if err != nil {
+		internal(w, r, err)
+		return
+	}
+	hidden := func(lat, lon float64) bool { return matchPlace(zones, lat, lon) != nil }
 	pt := func(p geo.Point) []any {
 		if approx {
 			return []any{p.TS, coarsen(p.Lat), coarsen(p.Lon), nil}
@@ -117,6 +124,9 @@ func (s *Server) publicShare(w http.ResponseWriter, r *http.Request) {
 	step := max(1, int(math.Ceil(float64(total)/20_000)))
 	i := 0
 	err = s.db.ForEachPoint(r.Context(), sh.UserID, from, to, 100, func(p geo.Point) error {
+		if hidden(p.Lat, p.Lon) {
+			return nil
+		}
 		if i++; (i-1)%step == 0 {
 			rows = append(rows, pt(p))
 		}
@@ -131,7 +141,7 @@ func (s *Server) publicShare(w http.ResponseWriter, r *http.Request) {
 		"expires_at": sh.ExpiresAt, "from": sh.From, "to": sh.To, "points": rows,
 	}
 	if sh.Kind == "live" {
-		if p, err := s.db.LatestPoint(r.Context(), sh.UserID); err == nil && p != nil {
+		if p, err := s.db.LatestPoint(r.Context(), sh.UserID); err == nil && p != nil && !hidden(p.Lat, p.Lon) {
 			out["latest"] = pt(*p)
 		}
 	} else {
@@ -139,6 +149,9 @@ func (s *Server) publicShare(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			vs := make([]map[string]any, 0, len(visits))
 			for _, v := range visits {
+				if hidden(v.Lat, v.Lon) {
+					continue
+				}
 				name := v.Name
 				lat, lon := v.Lat, v.Lon
 				if approx {

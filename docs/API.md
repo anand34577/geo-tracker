@@ -71,7 +71,7 @@ Other accepted formats (same token rules): `/ingest/owntracks`, `/ingest/overlan
 | Maps | `GET /map/style/{id}` · `GET /map/tiles/{z}/{x}/{y}` (offline MBTiles) |
 | Devices | `GET/POST /devices` · `POST /devices/{id}/token` · `DELETE /devices/{id}` |
 | Sharing | `GET/POST /shares` · `DELETE /shares/{id}` · public: `GET /public/shares/{token}` |
-| Data | `GET/POST /imports` (multipart `file`) · `DELETE /imports/{id}` (undo) · `GET /export?format=native\|gpx\|geojson\|csv&from&to` |
+| Data | `GET/POST /imports` (multipart `file`) · `DELETE /imports/{id}` (undo) · `GET /export?format=native\|gpx\|geojson\|csv&from&to` (streamed) · background exports: `POST /exports` (`format`, optional `from`/`to`), `GET /exports`, `GET /exports/{id}/download`, `DELETE /exports/{id}` |
 | Admin | `/admin/users…` · `/admin/settings` · `/admin/system` · `/admin/backups…` |
 
 `tz` is an IANA timezone name (e.g. `Asia/Kolkata`). Days are split in that zone.

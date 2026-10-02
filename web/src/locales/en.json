@@ -145,7 +145,10 @@
     "stats_one": "1 visit · {{time}} · {{last}}",
     "stats_other": "{{count}} visits · {{time}} · {{last}}",
     "mapLabel": "Map of your places",
-    "radiusLabel": "Radius"
+    "radiusLabel": "Radius",
+    "private": "Privacy zone",
+    "privateHint": "Hide where you are while you're here from family and share links. You still see it yourself.",
+    "privateBadge": "Private"
   },
   "settings": {
     "profile": "Profile",
@@ -170,7 +173,9 @@
     "imperial": "Miles",
     "clock": "Clock",
     "notifications": "Notifications",
-    "integrations": "Integrations"
+    "integrations": "Integrations",
+    "confirmWithPassword": "Current password",
+    "confirmEmailHint": "Needed to change your email address."
   },
   "devices": {
     "desc": "Phones and apps that send your location. Each has its own key, which can only send data, not read it.",
@@ -293,7 +298,21 @@
       "365": "1 year",
       "730": "2 years",
       "1825": "5 years"
-    }
+    },
+    "retentionConfirmTitle": "Delete older points for good?",
+    "retentionConfirmBody": "Raw points older than {{period}} will be permanently deleted within a few hours, and every day from now on. Visits and trips stay. Export your data first if you might need it.",
+    "retentionConfirm": "Delete older points",
+    "createExport": "Create export",
+    "allTime": "All time",
+    "exportBackground": "Built in the background, so you can keep using GeoTracker. Download it here when it is ready (kept for 7 days).",
+    "exportQueued": "Export started. It will appear below when ready.",
+    "exportStatus": {
+      "queued": "Waiting to start…",
+      "running": "Building…",
+      "done": "Ready · {{size}}"
+    },
+    "exportRemoveTitle": "Delete this export?",
+    "exportRemoveBody": "The file is removed from the server. You can always create a new export."
   },
   "admin": {
     "users": "Users",

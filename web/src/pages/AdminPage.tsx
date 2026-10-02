@@ -45,6 +45,7 @@ function UsersTab() {
   const [deleting, setDeleting] = useState<User | null>(null);
 
   const save = useMutation({
+    meta: { inline: true }, // error shown in the form
     mutationFn: (f: UserForm) =>
       f.id ? api(`/admin/users/${f.id}`, { method: "PATCH", body: f }) : api("/admin/users", { method: "POST", body: f }),
     onSuccess: () => {
@@ -281,6 +282,7 @@ function InstanceSettings() {
     if (settings.data) setForm(settings.data);
   }, [settings.data]);
   const save = useMutation({
+    meta: { inline: true }, // error shown in the form
     mutationFn: (s: Settings) => {
       const { oidc_callback_url: _cb, map_mbtiles_error: _err, ...body } = s;
       return api<Settings>("/admin/settings", { method: "PUT", body });

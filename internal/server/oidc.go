@@ -201,6 +201,11 @@ func (s *Server) linkOrCreateOIDCUser(ctx context.Context, st map[string]string,
 		return nil, errors.New("Your email address is not verified at your identity provider.")
 	}
 	if u, err := s.db.UserByEmail(ctx, email); err == nil {
+		// Linking takes over an existing (maybe admin) account, so the provider must vouch
+		// for the address; an absent claim is not enough.
+		if verified == nil {
+			return nil, errors.New("Your identity provider did not confirm that " + email + " is verified, so it can't be linked to the existing account. Turn on the email_verified claim at the provider.")
+		}
 		return u, s.db.LinkOIDC(ctx, u.ID, sub)
 	}
 	if st["oidc_auto_register"] != "true" {

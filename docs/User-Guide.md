@@ -25,7 +25,7 @@ After importing a lot of old data, use **Rebuild timeline** if visits look split
 
 ## Exporting your data
 
-Settings → Import & export: a lossless **GeoTracker archive**, or GPX, GeoJSON and CSV. Your data is yours at any time.
+Settings → Import & export: a lossless **GeoTracker archive**, or GPX, GeoJSON and CSV. Choose a format and period and press **Create export**. It is built in the background, so you can keep using GeoTracker (or close the page), and a **Download** button appears when it is ready. Finished exports are kept for 7 days. Your data is yours at any time.
 
 ## Family groups
 
@@ -61,6 +61,7 @@ The app opens offline; your data loads when you're back online. Location data is
 
 ## Privacy and security
 
-- **Data retention:** Settings → Import & export → keep raw points for 30 days to 5 years. Visits and trips stay.
+- **Privacy zones:** mark a place as a *Privacy zone* (Places → edit). While you're inside it, family members and share links don't see your position, path, visits or arrive/leave alerts there. You still see everything yourself.
+- **Data retention:** Settings → Import & export → keep raw points for 30 days to 5 years. Visits and trips stay. Shortening the period asks for confirmation, because older points are deleted for good.
 - **Signed-in devices:** Settings → Profile lists every browser you're signed in on; sign out any of them. Changing your password signs out all other sessions.
 - **Audit log:** admins see sign-ins and sensitive changes for one year (Admin → Audit log). Coordinates are never logged.

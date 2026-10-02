@@ -6,7 +6,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { api, queryClient, type Place } from "../lib/api";
 import { Button, cn, Dialog, Field, Input, useToast } from "./ui";
-import { Slider } from "./controls";
+import { Checkbox, Slider } from "./controls";
 
 export const placeIcons: Record<string, LucideIcon> = {
   "map-pin": MapPin, home: Home, briefcase: Briefcase, school: GraduationCap, gym: Dumbbell, shop: ShoppingCart,
@@ -18,15 +18,15 @@ export const PlaceIcon = ({ name, className }: { name?: string; className?: stri
   return <Icon className={className} aria-hidden />;
 };
 
-export type PlaceDraft = Partial<Pick<Place, "id" | "name" | "icon" | "radius">> & { lat: number; lon: number };
+export type PlaceDraft = Partial<Pick<Place, "id" | "name" | "icon" | "radius" | "private">> & { lat: number; lon: number };
 
 export function PlaceDialog({ draft, onClose }: { draft: PlaceDraft | null; onClose: () => void }) {
   const { t } = useTranslation();
   const toast = useToast();
-  const [form, setForm] = useState({ name: "", icon: "map-pin", radius: 75 });
+  const [form, setForm] = useState({ name: "", icon: "map-pin", radius: 75, private: false });
   useEffect(() => {
     if (!draft) return;
-    setForm({ name: draft.name ?? "", icon: draft.icon ?? "map-pin", radius: draft.radius ?? 75 });
+    setForm({ name: draft.name ?? "", icon: draft.icon ?? "map-pin", radius: draft.radius ?? 75, private: draft.private ?? false });
     if (draft.name || draft.id) return;
     // Suggest a name for a spot clicked on the map (reverse geocoding); never overwrite typing.
     let alive = true;
@@ -39,6 +39,7 @@ export function PlaceDialog({ draft, onClose }: { draft: PlaceDraft | null; onCl
   }, [draft]);
 
   const save = useMutation({
+    meta: { inline: true }, // error shown in the form
     mutationFn: () =>
       api<Place>(draft?.id ? `/places/${draft.id}` : "/places", {
         method: draft?.id ? "PUT" : "POST",
@@ -90,6 +91,7 @@ export function PlaceDialog({ draft, onClose }: { draft: PlaceDraft | null; onCl
         <Field label={t("places.radius", { m: form.radius })} hint={t("places.radiusHint")}>
           {(id) => <Slider id={id} label={t("places.radiusLabel")} min={25} max={1000} step={25} value={form.radius} format={(v) => `${v} m`} onChange={(radius) => setForm({ ...form, radius })} />}
         </Field>
+        <Checkbox checked={form.private} onChange={(v) => setForm({ ...form, private: v })} label={t("places.private")} description={t("places.privateHint")} />
         <button type="submit" hidden />
       </form>
     </Dialog>

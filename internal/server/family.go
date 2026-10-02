@@ -224,8 +224,13 @@ func (s *Server) family(w http.ResponseWriter, r *http.Request, u *store.User) {
 			from := acc.From
 			fp.HistoryFrom = &from
 		}
+		zones, err := s.privateZones(r.Context(), m.UserID)
+		if err != nil {
+			internal(w, r, err)
+			return
+		}
 		if acc.Live {
-			if p, err := s.db.LatestPoint(r.Context(), m.UserID); err == nil && p != nil {
+			if p, err := s.db.LatestPoint(r.Context(), m.UserID); err == nil && p != nil && matchPlace(zones, p.Lat, p.Lon) == nil {
 				fp.Point = maskPoint(*p, acc.Approx)
 				// Where they are now: their latest visit if it is still going on.
 				if vs, _, err := s.db.Timeline(r.Context(), m.UserID, now-6*3_600_000, now); err == nil && len(vs) > 0 {
@@ -251,24 +256,55 @@ func maskPoint(p geo.Point, approx bool) *geo.Point {
 	return &p
 }
 
+// view is what a read endpoint may show of one person's data.
+type view struct {
+	id, from, to int64
+	approx       bool
+	zones        []store.Place // the subject's privacy zones; nil when viewing yourself
+}
+
+// hidden reports whether a position falls in one of the subject's privacy zones.
+func (v view) hidden(lat, lon float64) bool { return matchPlace(v.zones, lat, lon) != nil }
+
+// privateZones lists a person's privacy zones: their location inside them is never shown
+// to anyone else (spec §13.2).
+func (s *Server) privateZones(ctx context.Context, userID int64) ([]store.Place, error) {
+	places, err := s.db.Places(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	zones := places[:0]
+	for _, p := range places {
+		if p.Private {
+			zones = append(zones, p)
+		}
+	}
+	return zones, nil
+}
+
 // subject resolves ?user= for read endpoints: yourself, or a family member within what
 // they share. It narrows [from, to] to the visible history.
-func (s *Server) subject(w http.ResponseWriter, r *http.Request, u *store.User, from, to int64) (id, f, t int64, approx, ok bool) {
+func (s *Server) subject(w http.ResponseWriter, r *http.Request, u *store.User, from, to int64) (view, bool) {
 	q := r.URL.Query().Get("user")
 	if q == "" || q == strconv.FormatInt(u.ID, 10) {
-		return u.ID, from, to, false, true
+		return view{id: u.ID, from: from, to: to}, true
 	}
-	id, _ = strconv.ParseInt(q, 10, 64)
+	id, _ := strconv.ParseInt(q, 10, 64)
 	acc, err := s.db.AccessTo(r.Context(), u.ID, id)
 	if err != nil {
 		internal(w, r, err)
-		return 0, 0, 0, false, false
+		return view{}, false
 	}
 	if acc.From == math.MaxInt64 {
 		fail(w, http.StatusForbidden, "this person doesn't share their history with you")
-		return 0, 0, 0, false, false
+		return view{}, false
 	}
-	return id, max(from, acc.From), to, acc.Approx, true
+	zones, err := s.privateZones(r.Context(), id)
+	if err != nil {
+		internal(w, r, err)
+		return view{}, false
+	}
+	return view{id: id, from: max(from, acc.From), to: to, approx: acc.Approx, zones: zones}, true
 }
 
 // ── Alerts about family members ──────────────────────────────
@@ -324,6 +360,10 @@ func (s *Server) deleteAlert(w http.ResponseWriter, r *http.Request, u *store.Us
 func (s *Server) checkFamilyAlerts(ctx context.Context, subject *store.User, p geo.Point) {
 	rules, err := s.db.AlertsBySubject(ctx, subject.ID)
 	if err != nil || len(rules) == 0 {
+		return
+	}
+	// Inside a privacy zone nobody learns anything, not even "left School".
+	if zones, err := s.privateZones(ctx, subject.ID); err != nil || matchPlace(zones, p.Lat, p.Lon) != nil {
 		return
 	}
 	margin := 25.0

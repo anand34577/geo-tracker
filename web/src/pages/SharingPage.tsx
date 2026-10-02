@@ -22,6 +22,7 @@ export default function SharingPage() {
   const [form, setForm] = useState({ name: "", kind: "live" as "live" | "range", precision: "exact" as "exact" | "approx", hours: "4" as (typeof durations)[number], range: presetRange("today") as Range });
 
   const create = useMutation({
+    meta: { inline: true }, // error shown in the form
     mutationFn: () =>
       api<{ url: string; share: Share }>("/shares", {
         method: "POST",

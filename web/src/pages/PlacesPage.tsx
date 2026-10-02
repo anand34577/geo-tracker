@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { MapPin, MousePointerClick, Pencil, Trash2 } from "lucide-react";
+import { EyeOff, MapPin, MousePointerClick, Pencil, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api, queryClient, type Place } from "../lib/api";
 import { ago, duration } from "../lib/format";
@@ -57,7 +57,10 @@ export default function PlacesPage() {
                       <PlaceIcon name={p.icon} className="size-5" />
                     </span>
                     <span className="min-w-0">
-                      <span className="block truncate font-medium">{p.name}</span>
+                      <span className="flex items-center gap-1.5 truncate font-medium">
+                        {p.name}
+                        {p.private && <span className="flex items-center gap-1 rounded-full bg-surface-3 px-2 py-0.5 text-[11px] font-medium text-muted"><EyeOff className="size-3" aria-hidden />{t("places.privateBadge")}</span>}
+                      </span>
                       <span className="block truncate text-sm text-muted">
                         {p.visits
                           ? t("places.stats", { count: p.visits, time: duration(p.total_ms), last: p.last_visit ? ago(p.last_visit) : "" })
