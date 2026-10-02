@@ -11,7 +11,7 @@ import { usePrefs } from "../lib/prefs";
 import MapView from "../components/MapView";
 import { DatePicker, Popover, RangePicker, Select, type Range } from "../components/controls";
 import { PlaceDialog, PlaceIcon, type PlaceDraft } from "../components/places";
-import { PhotoStrip, usePhotos } from "../components/Photos";
+import { PhotoGallery, photoUrl, usePhotos, type Photo } from "../components/Photos";
 import { Avatar, Button, cn, EmptyState, ErrorState, Notice, Segmented, Skeleton } from "../components/ui";
 
 export const modeIcons: Record<TripMode, LucideIcon> = { walk: Footprints, cycle: Bike, drive: Car, train: TrainFront, flight: Plane, unknown: CircleHelp };
@@ -47,7 +47,8 @@ export default function TimelinePage() {
   const photos = usePhotos(from, to, !viewUser);
   const stats = useQuery({ queryKey: ["stats"], queryFn: () => api<PointStats>("/stats") });
   const [active, setActive] = useState<number | null>(null);
-  const [focus, setFocus] = useState<{ lon: number; lat: number; key: number } | null>(null);
+  const [focus, setFocus] = useState<{ lon: number; lat: number; zoom?: number; key: number } | null>(null);
+  const [located, setLocated] = useState<(Photo & { key: number }) | null>(null); // photo whose spot is highlighted on the map
   const [draft, setDraft] = useState<PlaceDraft | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -61,7 +62,14 @@ export default function TimelinePage() {
     navigate(`${location.pathname}?${q}`);
   };
 
-  useEffect(() => setActive(null), [from, to]);
+  useEffect(() => {
+    setActive(null);
+    setLocated(null);
+  }, [from, to]);
+  const locatePhoto = (p: Photo) => {
+    setLocated({ ...p, key: Date.now() });
+    setFocus({ lon: p.lon!, lat: p.lat!, zoom: 17, key: Date.now() });
+  };
   useEffect(() => {
     if (rangeMode) return;
     const onKey = (e: KeyboardEvent) => {
@@ -163,7 +171,7 @@ export default function TimelinePage() {
         </div>
 
         <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto">
-          {!viewUser && photos.data && <PhotoStrip photos={photos.data} clock={clock} onLocate={(p) => setFocus({ lon: p.lon!, lat: p.lat!, key: Date.now() })} />}
+          {!viewUser && photos.data && <PhotoGallery photos={photos.data} clock={clock} onLocate={locatePhoto} locatedId={located?.id} />}
           {timeline.isError ? (
             <ErrorState error={timeline.error} retry={() => timeline.refetch()} />
           ) : loading ? (
@@ -211,6 +219,8 @@ export default function TimelinePage() {
         visits={timeline.data?.visits.map((v) => ({ id: v.id, lon: v.lon, lat: v.lat, active: v.id === active }))}
         fit={loading ? undefined : `${from}-${to}`}
         focus={focus}
+        pin={located && { lon: located.lon!, lat: located.lat!, image: photoUrl(located.id), label: t("photos.pinLabel", { time: time(located.ts, clock) }), key: located.key }}
+        onPinClick={() => setLocated(null)}
         onVisitClick={(id) => {
           const v = timeline.data?.visits.find((x) => x.id === id);
           if (v) selectVisit(v, true);

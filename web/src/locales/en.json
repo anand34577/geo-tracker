@@ -726,7 +726,12 @@
     "open": "Open photo taken at {{time}}",
     "showOnMap": "Show where it was taken",
     "prev": "Previous photo",
-    "next": "Next photo"
+    "next": "Next photo",
+    "viewAll": "View all",
+    "more": "+{{count}}",
+    "noLocation": "No location saved with this photo",
+    "loadFailed": "This photo could not be loaded",
+    "pinLabel": "Photo taken here at {{time}}. Click to hide this marker."
   },
   "auto": {
     "title": "Automations",

@@ -41,6 +41,9 @@ type Props = {
   fitPadding?: { top: number; bottom: number; left: number; right: number };
   /** Change `key` to fly to a location. */
   focus?: { lon: number; lat: number; zoom?: number; key: number } | null;
+  /** A spotlighted location (e.g. where a photo was taken): a large pin with a pulsing ring. Change `key` to replace it. */
+  pin?: { lon: number; lat: number; image?: string; label?: string; key: number } | null;
+  onPinClick?: () => void;
   onVisitClick?: (id: number) => void;
   onPointClick?: (row: PointRow) => void;
   onMapClick?: (lon: number, lat: number) => void;
@@ -100,6 +103,28 @@ function personElement(p: MapPerson, onClick: () => void): HTMLElement {
   el.style.background = p.color;
   el.style.opacity = p.stale ? "0.55" : "1";
   el.textContent = p.name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join("");
+  el.addEventListener("click", (e) => {
+    e.stopPropagation();
+    onClick();
+  });
+  return el;
+}
+
+/** A big, unmissable pin: the photo in a round frame on a stalk, with a pulsing ring on the ground. */
+function pinElement(image: string | undefined, label: string | undefined, onClick: () => void): HTMLElement {
+  const el = document.createElement("button");
+  el.type = "button";
+  el.className = "gt-pin";
+  if (label) {
+    el.title = label;
+    el.setAttribute("aria-label", label);
+  }
+  const ring = document.createElement("span");
+  ring.className = "gt-pin-ring";
+  const head = document.createElement("span");
+  head.className = "gt-pin-head";
+  if (image) head.style.backgroundImage = `url("${image}")`;
+  el.append(ring, head);
   el.addEventListener("click", (e) => {
     e.stopPropagation();
     onClick();
@@ -260,6 +285,21 @@ export default function MapView(props: Props) {
       markers.current.set(p.id, m);
     }
   }, [props.people, layers.family, !!styleUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The spotlight pin (photo location). Replaced whenever its key changes, removed when cleared.
+  const pinMarker = useRef<Marker | null>(null);
+  useEffect(() => {
+    const map = mapRef.current;
+    pinMarker.current?.remove();
+    pinMarker.current = null;
+    const p = props.pin;
+    if (!map || !p) return;
+    pinMarker.current = new Marker({ element: pinElement(p.image, p.label, () => propsRef.current.onPinClick?.()), anchor: "bottom" }).setLngLat([p.lon, p.lat]).addTo(map);
+    return () => {
+      pinMarker.current?.remove();
+      pinMarker.current = null;
+    };
+  }, [props.pin?.key, !!styleUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (props.onMapClick && mapRef.current) mapRef.current.getCanvas().style.cursor = "crosshair";

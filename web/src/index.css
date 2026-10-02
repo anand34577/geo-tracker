@@ -129,3 +129,12 @@
 .dark .maplibregl-ctrl-attrib-button { filter: invert(1); }
 /* Touch screens pinch to zoom; the +/- buttons would only sit under the floating cards. */
 @media (pointer: coarse) { .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group { display: none; } }
+
+/* Spotlight pin on the map (e.g. where a photo was taken). */
+.gt-pin { display: block; width: 64px; height: 84px; cursor: pointer; filter: drop-shadow(0 6px 10px rgb(0 0 0 / 0.35)); animation: gt-pin-drop 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.2); }
+.gt-pin-head { position: absolute; top: 0; left: 0; width: 64px; height: 64px; border-radius: 9999px; border: 4px solid #fff; background: var(--primary) center / cover no-repeat; box-shadow: 0 0 0 3px var(--primary); }
+.gt-pin::after { content: ""; position: absolute; top: 60px; left: 26px; width: 12px; height: 12px; background: #fff; border: 3px solid var(--primary); border-top: 0; border-left: 0; transform: rotate(45deg); }
+.gt-pin-ring { position: absolute; bottom: -2px; left: 50%; width: 22px; height: 22px; margin-left: -11px; border-radius: 9999px; background: var(--primary); opacity: 0.35; animation: gt-pin-pulse 1.8s ease-out infinite; }
+@keyframes gt-pin-pulse { from { transform: scale(0.4); opacity: 0.6; } to { transform: scale(3.2); opacity: 0; } }
+@keyframes gt-pin-drop { from { transform: translateY(-24px) scale(0.8); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .gt-pin, .gt-pin-ring { animation: none; } }
