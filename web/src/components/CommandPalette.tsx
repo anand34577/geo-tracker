@@ -82,8 +82,8 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     return needle && !date ? out.filter((i) => (i.label + " " + (i.keywords ?? "") + " " + (i.hint ?? "")).toLowerCase().includes(needle)) : out;
   }, [q, places.data, family.data, dark, user.role]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => setActive(0), [q]);
-  useEffect(() => list.current?.querySelector(`[data-i="${active}"]`)?.scrollIntoView({ block: "nearest" }), [active]);
+  useEffect(() => { setActive(0); }, [q]);
+  useEffect(() => { list.current?.querySelector(`[data-i="${active}"]`)?.scrollIntoView({ block: "nearest" }); }, [active]);
 
   const run = (i: Item) => {
     onClose();

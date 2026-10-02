@@ -270,7 +270,7 @@ export default function MapView(props: Props) {
     };
   }, [!!styleUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(sync, [props.path, props.points, props.visits, props.places, props.me, props.marker, props.fit, layers]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { sync(); }, [props.path, props.points, props.visits, props.places, props.me, props.marker, props.fit, layers]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Family avatars are DOM markers: crisp, clickable, and independent of the map style.
   useEffect(() => {

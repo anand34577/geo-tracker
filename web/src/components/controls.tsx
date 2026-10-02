@@ -49,7 +49,10 @@ export function Popover({ anchor, open, onClose, children, className, align = "s
   }, [anchor, align]);
 
   useLayoutEffect(() => {
-    if (!open) return setPos(null);
+    if (!open) {
+      setPos(null);
+      return;
+    }
     place();
     window.addEventListener("resize", place);
     window.addEventListener("scroll", place, true);
@@ -336,7 +339,7 @@ export function Stepper({ value, onChange, min, max, step = 1, label, suffix, id
   id?: string;
 }) {
   const [text, setText] = useState(String(value));
-  useEffect(() => setText(String(value)), [value]);
+  useEffect(() => { setText(String(value)); }, [value]);
   const set = (v: number) => onChange(Math.min(max, Math.max(min, v)));
   return (
     <div className="inline-flex h-10 items-center rounded-lg border border-border-strong bg-surface">
@@ -521,8 +524,8 @@ export function DatePicker({ value, onChange, marked, onMonthChange, maxDate, la
   const [open, setOpen] = useState(false);
   const [month, setMonth] = useState(startOfMonth(value));
   // Keyed on the time, not the object: callers often pass a fresh Date each render.
-  useEffect(() => setMonth(startOfMonth(value)), [value.getTime()]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => onMonthChange?.(month), [month]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setMonth(startOfMonth(value)); }, [value.getTime()]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { onMonthChange?.(month); }, [month]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <>
       <button ref={btn} type="button" aria-label={label} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(!open)} className={cn(triggerClass, className)}>
@@ -592,7 +595,7 @@ export function RangePicker({ value, onChange, marked, onMonthChange, label, cla
   const [withTime, setWithTime] = useState(false);
   const [times, setTimes] = useState({ a: { h: 0, m: 0 }, b: { h: 23, m: 59 } });
   const [month, setMonth] = useState(startOfMonth(new Date(value.to)));
-  useEffect(() => onMonthChange?.(month), [month]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { onMonthChange?.(month); }, [month]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openPanel = () => {
     const a = new Date(value.from), b = new Date(value.to);
