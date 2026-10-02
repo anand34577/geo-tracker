@@ -40,9 +40,13 @@ Family → New group, then invite people by email (they need an account; admins 
 
 Sharing → New share link: share your **live location** or a **time period** with anyone, without them needing an account. Links expire (1 hour to 90 days), can be revoked any time, and can show an **approximate** position rounded to about 1 km.
 
+## Automations
+
+Run actions when you arrive at or leave a saved place: tell family, call a webhook, message ntfy, Telegram, Discord or Slack. See [Automations](Automations).
+
 ## Notifications
 
-Settings → Notifications. Choose email and/or Gotify, and which events you want: arriving at or leaving a saved place, a phone that stopped sending locations, low battery, import finished, and backup failed (admins). Email needs an admin to set up SMTP first ([Configuration → Email](Configuration#email-smtp)).
+Settings → Notifications. Choose email, Gotify, ntfy and/or Telegram, and which events you want: arriving at or leaving a saved place, a phone that stopped sending locations, low battery, import finished, and backup failed (admins). Email needs an admin to set up SMTP first ([Configuration → Email](Configuration#email-smtp)).
 
 ## Photos from Immich
 

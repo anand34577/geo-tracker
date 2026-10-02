@@ -29,9 +29,41 @@ export type NotifyEvent = "place_arrive" | "place_leave" | "family" | "device_si
 export type NotifyPrefs = {
   email: { enabled: boolean; to: string };
   gotify: { enabled: boolean; url: string; token: string; priority: number };
+  ntfy: { enabled: boolean; url: string; topic: string; token: string; priority: number };
+  telegram: { enabled: boolean; token: string; chat_id: string };
   events: Record<NotifyEvent, boolean>;
   silent_hours: number;
   battery_below: number;
+};
+
+export type AutoAction = {
+  id: string;
+  type: "webhook" | "notify_me" | "notify_family" | "ntfy" | "telegram" | "discord" | "slack" | "email";
+  message?: string;
+  url?: string;
+  method?: string;
+  body?: string;
+  headers?: Record<string, string>;
+  topic?: string;
+  token?: string;
+  chat_id?: string;
+  to?: string;
+  members?: number[];
+};
+export type Automation = {
+  id: number;
+  place_id: number;
+  place_name: string;
+  name: string;
+  on_arrive: boolean;
+  on_leave: boolean;
+  enabled: boolean;
+  cooldown_min: number;
+  actions: AutoAction[];
+  last_fired_at: number | null;
+  last_event: string;
+  last_result: string;
+  created_at: number;
 };
 
 export type Point = { ts: number; lat: number; lon: number; acc?: number; speed?: number; alt?: number; batt?: number };

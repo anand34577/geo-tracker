@@ -8,7 +8,9 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,6 +41,18 @@ type notifyPrefs struct {
 		Token    string `json:"token"`
 		Priority int    `json:"priority"`
 	} `json:"gotify"`
+	Ntfy struct {
+		Enabled  bool   `json:"enabled"`
+		URL      string `json:"url"` // empty = https://ntfy.sh
+		Topic    string `json:"topic"`
+		Token    string `json:"token"`
+		Priority int    `json:"priority"`
+	} `json:"ntfy"`
+	Telegram struct {
+		Enabled bool   `json:"enabled"`
+		Token   string `json:"token"`
+		ChatID  string `json:"chat_id"`
+	} `json:"telegram"`
 	Events       map[string]bool `json:"events"`
 	SilentHours  int             `json:"silent_hours"`  // 0 = off
 	BatteryBelow int             `json:"battery_below"` // percent
@@ -47,6 +61,7 @@ type notifyPrefs struct {
 func parsePrefs(raw json.RawMessage) notifyPrefs {
 	p := notifyPrefs{SilentHours: 12, BatteryBelow: 15}
 	p.Gotify.Priority = 5
+	p.Ntfy.Priority = 3
 	json.Unmarshal(raw, &p)
 	if p.Events == nil {
 		p.Events = map[string]bool{}
@@ -100,6 +115,12 @@ func (s *Server) deliver(ctx context.Context, u *store.User, p notifyPrefs, titl
 	}
 	if (only == "" && p.Gotify.Enabled) || only == "gotify" {
 		result("gotify", notify.SendGotify(ctx, p.Gotify.URL, p.Gotify.Token, title, body, p.Gotify.Priority))
+	}
+	if (only == "" && p.Ntfy.Enabled) || only == "ntfy" {
+		result("ntfy", notify.SendNtfy(ctx, p.Ntfy.URL, p.Ntfy.Topic, p.Ntfy.Token, title, body, p.Ntfy.Priority))
+	}
+	if (only == "" && p.Telegram.Enabled) || only == "telegram" {
+		result("telegram", notify.SendTelegram(ctx, p.Telegram.Token, p.Telegram.ChatID, title+"\n"+body))
 	}
 	return out
 }
@@ -189,9 +210,11 @@ func (s *Server) checkPointEvents(ctx context.Context, userID, deviceID int64, p
 	}
 	if pl := byID[prev]; prev != 0 && pl != nil {
 		s.notifyUser(userID, "place_leave", "Left "+pl.Name, u.Name+" left "+pl.Name+".")
+		s.runAutomations(u, *pl, "leave", p)
 	}
 	if pl := byID[cur]; pl != nil {
 		s.notifyUser(userID, "place_arrive", "Arrived at "+pl.Name, u.Name+" arrived at "+pl.Name+".")
+		s.runAutomations(u, *pl, "arrive", p)
 	}
 }
 
@@ -278,12 +301,27 @@ func (s *Server) putNotify(w http.ResponseWriter, r *http.Request, u *store.User
 			return
 		}
 	}
+	if p.Ntfy.Enabled {
+		if p.Ntfy.Topic == "" || strings.ContainsAny(p.Ntfy.Topic, "/ ?#") {
+			fail(w, http.StatusBadRequest, "ntfy needs a topic name (letters, digits, - and _)")
+			return
+		}
+		if pu, err := url.Parse(p.Ntfy.URL); p.Ntfy.URL != "" && (err != nil || (pu.Scheme != "https" && pu.Scheme != "http") || pu.Host == "") {
+			fail(w, http.StatusBadRequest, "the ntfy server must be an http(s) address (leave empty for ntfy.sh)")
+			return
+		}
+	}
+	if p.Telegram.Enabled && (p.Telegram.Token == "" || p.Telegram.ChatID == "") {
+		fail(w, http.StatusBadRequest, "Telegram needs a bot token and a chat id")
+		return
+	}
 	for e := range p.Events {
 		if _, ok := notifyEvents[e]; !ok {
 			delete(p.Events, e)
 		}
 	}
 	p.Gotify.Priority = min(max(p.Gotify.Priority, 0), 10)
+	p.Ntfy.Priority = min(max(p.Ntfy.Priority, 1), 5)
 	p.SilentHours = min(max(p.SilentHours, 0), 168)
 	p.BatteryBelow = min(max(p.BatteryBelow, 1), 99)
 	b, _ := json.Marshal(p)
@@ -296,8 +334,8 @@ func (s *Server) putNotify(w http.ResponseWriter, r *http.Request, u *store.User
 
 func (s *Server) testNotify(w http.ResponseWriter, r *http.Request, u *store.User) {
 	ch := r.URL.Query().Get("channel")
-	if ch != "email" && ch != "gotify" {
-		fail(w, http.StatusBadRequest, "channel must be email or gotify")
+	if !slices.Contains([]string{"email", "gotify", "ntfy", "telegram"}, ch) {
+		fail(w, http.StatusBadRequest, "channel must be email, gotify, ntfy or telegram")
 		return
 	}
 	if !s.logins.allow("notify-test:"+strconv.FormatInt(u.ID, 10), 10, 10*time.Minute) {

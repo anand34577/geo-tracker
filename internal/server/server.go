@@ -127,6 +127,13 @@ func (s *Server) Handler() http.Handler {
 	handle("GET /api/v1/photos", s.user(s.photos))
 	handle("GET /api/v1/photos/{pid}/thumb", s.user(s.photoThumb))
 
+	// Geofence automations
+	handle("GET /api/v1/automations", s.user(s.listAutomations))
+	handle("POST /api/v1/automations", s.user(s.saveAutomation))
+	handle("PUT /api/v1/automations/{id}", s.user(s.saveAutomation))
+	handle("DELETE /api/v1/automations/{id}", s.user(s.deleteAutomation))
+	handle("POST /api/v1/automations/{id}/test", s.user(s.testAutomation))
+
 	// Insights & sharing
 	handle("GET /api/v1/days", s.user(s.days))
 	handle("GET /api/v1/insights", s.user(s.insights))

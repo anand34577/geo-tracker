@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { BarChart3, CalendarDays, CornerDownLeft, Database, Map as MapIcon, MapPin, Moon, Palette, Search, Settings, Share2, ShieldCheck, Smartphone, Sun, Upload, Users, type LucideIcon } from "lucide-react";
+import { BarChart3, CalendarDays, CornerDownLeft, Database, Map as MapIcon, MapPin, Moon, Palette, Search, Settings, Share2, ShieldCheck, Smartphone, Sun, Upload, Users, Zap, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { isValid, parse, subDays } from "date-fns";
 import { useUser } from "../lib/api";
@@ -62,6 +62,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       ["/insights", t("nav.insights"), BarChart3, "stats statistics charts"],
       ["/places", t("nav.places"), MapPin],
       ["/family", t("nav.family"), Users, "group people share"],
+      ["/automations", t("nav.automations"), Zap, "geofence webhook arrive leave notify home assistant ntfy telegram"],
       ["/sharing", t("nav.sharing"), Share2, "link"],
       ["/settings/devices", t("settings.devices"), Smartphone, "phone app owntracks colota token"],
       ["/settings/data", t("settings.data"), Upload, "import export google takeout gpx"],

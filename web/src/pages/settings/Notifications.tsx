@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Mail, Send } from "lucide-react";
+import { BellRing, Mail, Send } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api, queryClient, useUser, type NotifyEvent, type NotifyPrefs } from "../../lib/api";
 import { Button, ErrorState, Field, Input, Notice, Section, Skeleton, useToast } from "../../components/ui";
@@ -28,7 +28,7 @@ export default function NotificationsTab() {
     onError: (e) => toast("error", e.message),
   });
   const test = useMutation({
-    mutationFn: async (channel: "email" | "gotify") => {
+    mutationFn: async (channel: "email" | "gotify" | "ntfy" | "telegram") => {
       await api<Resp>("/me/notifications", { method: "PUT", body: p }); // test what's on screen
       return api(`/me/notifications/test?channel=${channel}`, { method: "POST" });
     },
@@ -88,6 +88,47 @@ export default function NotificationsTab() {
                   <Button icon={Send} loading={test.isPending && test.variables === "gotify"} disabled={!p.gotify.url || !p.gotify.token} onClick={() => test.mutate("gotify")}>
                     {t("notify.test")}
                   </Button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ntfy */}
+          <div className="space-y-4 border-t border-border pt-6">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="flex items-center gap-2 font-medium"><BellRing className="size-4" aria-hidden />ntfy</p>
+                <p className="text-sm text-muted">{t("notify.ntfyDesc")}</p>
+              </div>
+              <Switch label="ntfy" checked={p.ntfy.enabled} onChange={(enabled) => set({ ntfy: { ...p.ntfy, enabled } })} />
+            </div>
+            {p.ntfy.enabled && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label={t("notify.ntfyTopic")} hint={t("notify.ntfyTopicHint")}>{(id, d) => <Input id={id} aria-describedby={d} placeholder="geotracker-ana" autoComplete="off" value={p.ntfy.topic} onChange={(e) => set({ ntfy: { ...p.ntfy, topic: e.target.value } })} />}</Field>
+                <Field label={t("notify.ntfyServer")} hint={t("notify.ntfyServerHint")}>{(id, d) => <Input id={id} aria-describedby={d} type="url" placeholder="https://ntfy.sh" value={p.ntfy.url} onChange={(e) => set({ ntfy: { ...p.ntfy, url: e.target.value } })} />}</Field>
+                <Field label={t("notify.ntfyToken")} hint={t("notify.optional")}>{(id, d) => <Input id={id} aria-describedby={d} type="password" autoComplete="off" value={p.ntfy.token} onChange={(e) => set({ ntfy: { ...p.ntfy, token: e.target.value } })} />}</Field>
+                <div className="flex items-start sm:justify-end sm:pt-7">
+                  <Button icon={Send} loading={test.isPending && test.variables === "ntfy"} disabled={!p.ntfy.topic} onClick={() => test.mutate("ntfy")}>{t("notify.test")}</Button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Telegram */}
+          <div className="space-y-4 border-t border-border pt-6">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="flex items-center gap-2 font-medium"><Send className="size-4" aria-hidden />Telegram</p>
+                <p className="text-sm text-muted">{t("notify.telegramDesc")}</p>
+              </div>
+              <Switch label="Telegram" checked={p.telegram.enabled} onChange={(enabled) => set({ telegram: { ...p.telegram, enabled } })} />
+            </div>
+            {p.telegram.enabled && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label={t("notify.telegramToken")} hint={t("notify.telegramTokenHint")}>{(id, d) => <Input id={id} aria-describedby={d} type="password" autoComplete="off" placeholder="123456:ABC…" value={p.telegram.token} onChange={(e) => set({ telegram: { ...p.telegram, token: e.target.value } })} />}</Field>
+                <Field label={t("notify.telegramChat")} hint={t("notify.telegramChatHint")}>{(id, d) => <Input id={id} aria-describedby={d} autoComplete="off" placeholder="123456789" value={p.telegram.chat_id} onChange={(e) => set({ telegram: { ...p.telegram, chat_id: e.target.value } })} />}</Field>
+                <div className="flex items-start sm:col-span-2 sm:justify-end">
+                  <Button icon={Send} loading={test.isPending && test.variables === "telegram"} disabled={!p.telegram.token || !p.telegram.chat_id} onClick={() => test.mutate("telegram")}>{t("notify.test")}</Button>
                 </div>
               </div>
             )}

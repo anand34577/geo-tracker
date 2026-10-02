@@ -6,6 +6,7 @@ A self-hosted, privacy-first **location timeline**, like Google Maps Timeline, r
 - **Live map:** your current position, today's path, saved places and playback of any day.
 - **Bring your history:** import Google Timeline (all three export formats), GPX, GeoJSON, CSV and OwnTracks files. Every import can be undone.
 - **Your data, your formats:** export everything at any time (lossless archive, GPX, GeoJSON, CSV).
+- **Geofencing automations:** when you arrive at or leave a place, tell family, call a webhook (Home Assistant, n8n, IFTTT) or message ntfy, Telegram, Discord or Slack.
 - **Family & sharing:** family groups with arrival alerts, and expiring share links (live or a trip, exact or approximate).
 - **Insights:** distance, time moving, places and countries over any period.
 - **Safe by default:** daily automatic backups, a backup before every upgrade, one-click restore.
@@ -41,8 +42,8 @@ Everything is in the **[wiki](https://github.com/anand34577/geo-tracker/wiki)**:
 |---|---|---|
 | [Getting started](https://github.com/anand34577/geo-tracker/wiki/Getting-Started) | [Connecting phones](https://github.com/anand34577/geo-tracker/wiki/Connecting-Phones) | [Configuration](https://github.com/anand34577/geo-tracker/wiki/Configuration) |
 | [Install with Docker](https://github.com/anand34577/geo-tracker/wiki/Install-with-Docker) | [User guide](https://github.com/anand34577/geo-tracker/wiki/User-Guide) | [Administration](https://github.com/anand34577/geo-tracker/wiki/Administration) |
-| [Install the program](https://github.com/anand34577/geo-tracker/wiki/Install-the-Program) | [API](https://github.com/anand34577/geo-tracker/wiki/API) | [Single sign-on](https://github.com/anand34577/geo-tracker/wiki/Single-Sign-On) |
-| [HTTPS](https://github.com/anand34577/geo-tracker/wiki/HTTPS) | | [Troubleshooting](https://github.com/anand34577/geo-tracker/wiki/Troubleshooting) |
+| [Install the program](https://github.com/anand34577/geo-tracker/wiki/Install-the-Program) | [Automations](https://github.com/anand34577/geo-tracker/wiki/Automations) | [Single sign-on](https://github.com/anand34577/geo-tracker/wiki/Single-Sign-On) |
+| [HTTPS](https://github.com/anand34577/geo-tracker/wiki/HTTPS) | [API](https://github.com/anand34577/geo-tracker/wiki/API) | [Troubleshooting](https://github.com/anand34577/geo-tracker/wiki/Troubleshooting) |
 
 The wiki is generated from the [`docs/`](docs) folder. The product and architecture spec, with every design decision and its reason, is [PROJECT_SPEC.md](PROJECT_SPEC.md).
 

@@ -41,6 +41,7 @@ Raise detail with `GT_LOG_LEVEL=debug`. Check health with `curl http://127.0.0.1
 | Live updates lag behind a proxy | Turn off response buffering for `/api/v1/live` (see `deploy/nginx.conf`; Caddy: `flush_interval -1`). |
 | Import fails or is cut off | Behind nginx set `client_max_body_size 8g;`. Cloudflare's free plan limits uploads to 100 MB: import over the LAN or via the tunnel-free address. |
 | "too many attempts" at sign-in | Rate limit: 10 tries per email and 20 per address per 15 minutes. Wait, or restart the server to clear it. |
+| Geofence automation doesn't fire | See [Automations → Troubleshooting](Automations#troubleshooting). |
 | Email notifications don't arrive | Admin → Settings → Email → *Send test email to me*. Port 587 uses STARTTLS and 465 uses TLS. |
 
 ## Accounts and data

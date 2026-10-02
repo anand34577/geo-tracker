@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { createBrowserRouter, Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { BarChart3, CalendarDays, ChevronsUpDown, LogOut, Map as MapIcon, MapPin, Menu, Search, Settings, Share2, ShieldCheck, Users, type LucideIcon } from "lucide-react";
+import { BarChart3, CalendarDays, ChevronsUpDown, LogOut, Map as MapIcon, MapPin, Menu, Search, Settings, Share2, ShieldCheck, Users, Zap, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api, queryClient, useMe, useUser } from "./lib/api";
 import { useLiveUpdates } from "./lib/live";
@@ -17,6 +17,7 @@ const MapPage = lazy(() => import("./pages/MapPage"));
 const TimelinePage = lazy(() => import("./pages/TimelinePage"));
 const InsightsPage = lazy(() => import("./pages/InsightsPage"));
 const PlacesPage = lazy(() => import("./pages/PlacesPage"));
+const AutomationsPage = lazy(() => import("./pages/AutomationsPage"));
 const SharingPage = lazy(() => import("./pages/SharingPage"));
 const FamilyPage = lazy(() => import("./pages/FamilyPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
@@ -38,6 +39,7 @@ export const router = createBrowserRouter([
           { path: "insights", element: <InsightsPage /> },
           { path: "places", element: <PlacesPage /> },
           { path: "family", element: <FamilyPage /> },
+          { path: "automations", element: <AutomationsPage /> },
           { path: "sharing", element: <SharingPage /> },
           { path: "settings/:tab?", element: <SettingsPage /> },
           { path: "admin/:tab?", element: <AdminPage /> },
@@ -76,6 +78,7 @@ const primaryNav: NavItem[] = [
   { to: "/family", icon: Users, key: "nav.family" },
   { to: "/insights", icon: BarChart3, key: "nav.insights" },
   { to: "/places", icon: MapPin, key: "nav.places" },
+  { to: "/automations", icon: Zap, key: "nav.automations" },
   { to: "/sharing", icon: Share2, key: "nav.sharing" },
 ];
 
@@ -232,6 +235,7 @@ function MobileNav({ onSearch }: { onSearch: () => void }) {
         <div className="flex flex-col pt-1.5">
           <button onClick={() => { setMore(false); onSearch(); }} className={sheetLink + " text-left"}><Search className="size-4 text-muted" />{t("cmd.search")}</button>
           <Link to="/places" className={sheetLink}><MapPin className="size-4 text-muted" />{t("nav.places")}</Link>
+          <Link to="/automations" className={sheetLink}><Zap className="size-4 text-muted" />{t("nav.automations")}</Link>
           <Link to="/sharing" className={sheetLink}><Share2 className="size-4 text-muted" />{t("nav.sharing")}</Link>
           <Link to="/settings" className={sheetLink}><Settings className="size-4 text-muted" />{t("nav.settings")}</Link>
           {user.role === "admin" && <Link to="/admin" className={sheetLink}><ShieldCheck className="size-4 text-muted" />{t("nav.admin")}</Link>}

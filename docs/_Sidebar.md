@@ -9,6 +9,7 @@
 **Using GeoTracker**
 - [Connecting phones](Connecting-Phones)
 - [User guide](User-Guide)
+- [Automations](Automations)
 
 **Running a server**
 - [Configuration](Configuration)

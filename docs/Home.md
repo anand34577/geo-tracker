@@ -11,6 +11,7 @@ GeoTracker is a self-hosted, privacy-first location timeline: one small program,
 ## Using GeoTracker
 - **[Connecting phones](Connecting-Phones)**: OwnTracks, Overland, Colota, GPSLogger, Traccar, Home Assistant
 - **[User guide](User-Guide)**: timeline, importing Google Timeline, family, share links, photos, the installable app
+- **[Automations](Automations)**: geofencing: tell family, call webhooks, Home Assistant, ntfy, Telegram, Discord, Slack
 
 ## Running a server
 - **[Configuration](Configuration)**: environment variables, maps, offline maps, place names, email

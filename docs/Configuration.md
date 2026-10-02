@@ -44,6 +44,10 @@ Visits (never your full track) are reverse-geocoded, cached and shared across us
 
 Host, port, encryption (STARTTLS on 587 or TLS on 465), user, password and sender. **Send test email to me** verifies it. Used for notifications, including family invitations.
 
+### Notification services
+
+People add their own Gotify, ntfy or Telegram details under Settings → Notifications; nothing to configure on the server. ntfy works with the public ntfy.sh or your own server, and Telegram uses a bot each person creates with @BotFather. Email needs the SMTP settings above.
+
 ### Single sign-on
 
 See [Single sign-on](Single-Sign-On).
