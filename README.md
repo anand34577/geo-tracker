@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/images/hero.png" alt="GeoTracker: your location history, on your own server" width="900"></p>
+
 # GeoTracker
 
 A self-hosted, privacy-first **location timeline**, like Google Maps Timeline, running on your own server as **one small program**. MIT licensed.
@@ -14,6 +16,18 @@ A self-hosted, privacy-first **location timeline**, like Google Maps Timeline, r
 - **Lightweight:** one process, one data folder, SQLite. No Redis, no separate database. Runs on a Raspberry Pi.
 
 Phones send locations with apps you may already use: **OwnTracks**, **Overland**, **Colota**, **GPSLogger** or **Traccar Client**. Scan a QR code and you're done.
+
+## Screenshots
+
+| Live map and day playback | Timeline: visits and trips |
+|---|---|
+| ![Live map](docs/images/map.webp) | ![Timeline](docs/images/timeline.webp) |
+
+| Insights | Dark mode | On your phone |
+|---|---|---|
+| ![Insights](docs/images/insights.webp) | ![Dark mode](docs/images/timeline-dark.webp) | <img src="docs/images/mobile.webp" alt="Mobile timeline" width="180"> |
+
+*Screenshots use synthetic demo data.*
 
 ## Quick start
 
