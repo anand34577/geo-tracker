@@ -63,7 +63,7 @@ func (s *Server) getPoints(w http.ResponseWriter, r *http.Request, u *store.User
 	if !ok {
 		return
 	}
-	total, err := s.db.CountPoints(r.Context(), v.id, v.from, v.to)
+	total, err := s.db.CountPoints(r.Context(), v.id, v.from, v.to, maxAcc)
 	if err != nil {
 		internal(w, r, err)
 		return

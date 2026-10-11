@@ -387,8 +387,13 @@ func (s *Store) ForEachPoint(ctx context.Context, userID, from, to int64, maxAcc
 	return rows.Err()
 }
 
-func (s *Store) CountPoints(ctx context.Context, userID, from, to int64) (n int, err error) {
-	err = s.R.QueryRowContext(ctx, `SELECT COUNT(*) FROM points WHERE user_id = ? AND ts BETWEEN ? AND ?`, userID, from, to).Scan(&n)
+// CountPoints counts what ForEachPoint with the same maxAcc would return.
+func (s *Store) CountPoints(ctx context.Context, userID, from, to int64, maxAcc float64) (n int, err error) {
+	q := `SELECT COUNT(*) FROM points WHERE user_id = ? AND ts BETWEEN ? AND ?`
+	if maxAcc > 0 {
+		q += ` AND (accuracy IS NULL OR accuracy <= ` + strconv.FormatFloat(maxAcc, 'f', -1, 64) + `)`
+	}
+	err = s.R.QueryRowContext(ctx, q, userID, from, to).Scan(&n)
 	return
 }
 
