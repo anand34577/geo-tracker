@@ -58,7 +58,7 @@ sudo systemctl restart geotracker
 
 On start, if the new version needs database changes, GeoTracker first writes `pre-upgrade-*.db.gz`, then migrates in a transaction. If anything fails it stops without touching your data and logs the backup to restore.
 
-**Rolling back:** run the previous version and restore the `pre-upgrade` backup. Migrations are forward-only on purpose, because restoring a backup is the reliable way back. Pin versions (`:0.3` rather than `:latest`) and read the [release notes](https://github.com/anand34577/geo-tracker/releases) before upgrading across versions.
+**Rolling back:** run the previous version and restore the `pre-upgrade` backup. Migrations are forward-only on purpose, because restoring a backup is the reliable way back. Pin versions (`:0.4` rather than `:latest`) and read the [release notes](https://github.com/anand34577/geo-tracker/releases) before upgrading across versions.
 
 ## Moving to a new server
 
