@@ -2,9 +2,9 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { addDays, endOfMonth, endOfYear, format, parseISO, startOfDay, startOfWeek, subDays } from "date-fns";
-import { BarChart3, Building2, CalendarCheck2, Clock, Globe2, MapPin, Route, Trophy, type LucideIcon } from "lucide-react";
+import { BarChart3, Building2, CalendarCheck2, ChevronRight, Clock, Globe2, MapPin, Route, Sparkles, Trophy, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { api, type Insights } from "../lib/api";
+import { api, type InsightPlace, type Insights } from "../lib/api";
 import { dayKey, distance, duration, longDate, modeLabel, number } from "../lib/format";
 import { tz, useDays, useMonthDays } from "../lib/data";
 import { usePrefs } from "../lib/prefs";
@@ -33,7 +33,13 @@ export default function InsightsPage() {
           <h1 className="text-2xl font-semibold tracking-tight">{t("insights.title")}</h1>
           <p className="mt-1 text-sm text-muted">{t("insights.subtitle")}</p>
         </div>
-        <RangePicker label={t("range.label")} value={range} onChange={setRange} marked={marked} onMonthChange={setMonth} className="w-full sm:w-72" />
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+          <Link to="/insights/recap" className="inline-flex h-10 items-center gap-2 rounded-lg border border-border-strong bg-surface px-4 text-sm font-medium hover:bg-surface-2">
+            <Sparkles className="size-4 text-primary" aria-hidden />
+            {t("recap.open")}
+          </Link>
+          <RangePicker label={t("range.label")} value={range} onChange={setRange} marked={marked} onMonthChange={setMonth} className="min-w-0 flex-1 sm:w-72 sm:flex-none" />
+        </div>
       </div>
 
       {q.isError ? (
@@ -91,7 +97,8 @@ export default function InsightsPage() {
             <Card title={t("insights.topPlaces")} icon={MapPin}>
               <ul className="space-y-3">
                 {d.top_places.map((p, i) => (
-                  <li key={i} className="flex items-center gap-3">
+                  <li key={i}>
+                    <Link to={placeLink(p)} title={t("insights.openPlace")} className="-mx-2 flex items-center gap-3 rounded-xl px-2 py-1.5 transition-colors hover:bg-surface-2">
                     <span className={cn("grid size-9 shrink-0 place-items-center rounded-xl", p.place_id ? "bg-primary text-primary-fg" : "bg-surface-2 text-muted")}>
                       <PlaceIcon name={p.icon} className="size-4" />
                     </span>
@@ -104,6 +111,8 @@ export default function InsightsPage() {
                         <div className="h-full rounded-full bg-primary/70" style={{ width: `${(p.ms / d.top_places[0].ms) * 100}%` }} />
                       </div>
                     </div>
+                    <ChevronRight className="size-4 shrink-0 text-subtle" aria-hidden />
+                    </Link>
                   </li>
                 ))}
               </ul>
@@ -115,10 +124,12 @@ export default function InsightsPage() {
               {d.countries.length === 0 ? <p className="text-sm text-muted">{t("insights.noPlaceNames")}</p> : (
                 <ul className="flex flex-wrap gap-2">
                   {d.countries.map((c) => (
-                    <li key={c.name} className="flex items-center gap-2 rounded-full border border-border py-1 pr-3 pl-1 text-sm">
-                      <span className="grid h-6 min-w-9 place-items-center rounded-full bg-surface-2 px-1.5 text-[11px] font-bold tracking-wide">{c.name}</span>
-                      {countryName(c.name)}
-                      <span className="text-xs text-subtle">{duration(c.ms)}</span>
+                    <li key={c.name}>
+                      <Link to={`/timeline/${dayKey(c.last)}`} title={t("insights.openLast")} className="flex items-center gap-2 rounded-full border border-border py-1 pr-3 pl-1.5 text-sm transition-colors hover:border-primary hover:bg-primary-subtle">
+                        <span className="text-base leading-none" aria-hidden>{flag(c.name)}</span>
+                        {countryName(c.name)}
+                        <span className="text-xs text-subtle">{duration(c.ms)}</span>
+                      </Link>
                     </li>
                   ))}
                 </ul>
@@ -128,8 +139,10 @@ export default function InsightsPage() {
               {d.cities.length === 0 ? <p className="text-sm text-muted">{t("insights.noPlaceNames")}</p> : (
                 <ul className="flex flex-wrap gap-2">
                   {d.cities.map((c) => (
-                    <li key={c.name + c.country} className="rounded-full bg-surface-2 px-3 py-1 text-sm">
-                      {c.name} <span className="text-xs text-subtle">· {t("insights.visitsCount", { count: c.visits })}</span>
+                    <li key={c.name + c.country}>
+                      <Link to={`/timeline/${dayKey(c.last)}`} title={t("insights.openLast")} className="block rounded-full bg-surface-2 px-3 py-1 text-sm transition-colors hover:bg-primary-subtle hover:text-primary">
+                        {c.name} <span className="text-xs text-subtle">· {t("insights.visitsCount", { count: c.visits })}</span>
+                      </Link>
                     </li>
                   ))}
                 </ul>
@@ -153,9 +166,13 @@ const regionNames = (() => {
     return null;
   }
 })();
-const countryName = (code: string) => regionNames?.of(code) ?? code;
+export const countryName = (code: string) => regionNames?.of(code) ?? code;
+/** "GB" → 🇬🇧 (regional indicator letters). */
+export const flag = (code: string) => (/^[A-Z]{2}$/i.test(code) ? String.fromCodePoint(...[...code.toUpperCase()].map((c) => 0x1f1a5 + c.charCodeAt(0))) : "🏳️");
+/** Saved places open on the Places map; other spots open the day you were last there. */
+export const placeLink = (p: InsightPlace) => (p.place_id ? `/places?place=${p.place_id}` : `/timeline/${dayKey(p.last)}`);
 
-function Kpi({ icon: Icon, label, value, sub }: { icon: LucideIcon; label: string; value: string; sub?: string }) {
+export function Kpi({ icon: Icon, label, value, sub }: { icon: LucideIcon; label: string; value: string; sub?: string }) {
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
       <div className="flex items-center gap-2 text-sm text-muted">
@@ -168,7 +185,7 @@ function Kpi({ icon: Icon, label, value, sub }: { icon: LucideIcon; label: strin
   );
 }
 
-function Card({ title, icon: Icon, children }: { title: string; icon: LucideIcon; children: React.ReactNode }) {
+export function Card({ title, icon: Icon, children }: { title: string; icon: LucideIcon; children: React.ReactNode }) {
   return (
     <section className="rounded-2xl border border-border bg-surface p-5">
       <h2 className="mb-4 flex items-center gap-2 font-semibold"><Icon className="size-4 text-subtle" aria-hidden />{title}</h2>

@@ -20,6 +20,7 @@
   --warning-subtle: #fffbeb;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 4px 16px rgb(0 0 0 / 0.06);
   /* accent (teal default) */
+  --highlight: #f97316; /* a selected trip, the playback head */
   --primary: #0d9488;
   --primary-hover: #0f766e;
   --primary-fg: #ffffff;
@@ -84,6 +85,7 @@
   --color-subtle: var(--fg-subtle);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
+  --color-highlight: var(--highlight);
   --color-primary: var(--primary);
   --color-primary-hover: var(--primary-hover);
   --color-primary-fg: var(--primary-fg);
@@ -113,8 +115,21 @@
   }
   :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 6px; }
   ::selection { background: var(--primary-subtle); }
-  dialog::backdrop { background: rgb(0 0 0 / 0.45); }
+  * { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+  /* Reserve the scrollbar's space so pages don't jump sideways when content grows past the fold. */
+  #main { scrollbar-gutter: stable; }
+  dialog::backdrop { background: rgb(0 0 0 / 0.45); backdrop-filter: blur(2px); animation: gt-fade 0.18s ease-out; }
+  dialog[open] { animation: gt-pop 0.2s cubic-bezier(0.2, 0.9, 0.3, 1); }
+  /* Disclosures get a chevron that turns, instead of the browser's triangle. */
+  summary { list-style: none; display: inline-flex; align-items: center; gap: 0.375rem; }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: ""; width: 0.4rem; height: 0.4rem; border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg); transition: transform 0.15s; }
+  details[open] > summary::before { transform: rotate(45deg); }
 }
+
+@keyframes gt-fade { from { opacity: 0; } }
+@keyframes gt-pop { from { opacity: 0; transform: translateY(6px) scale(0.98); } }
+.gt-pop { animation: gt-pop 0.16s ease-out; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }

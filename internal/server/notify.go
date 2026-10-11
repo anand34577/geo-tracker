@@ -28,6 +28,7 @@ var notifyEvents = map[string]bool{ // event → on by default
 	"import_done":   true,
 	"family":        true, // invitations and the arrive/leave alerts you set up for family members
 	"backup_failed": true, // admins only
+	"monthly_recap": true, // on the 1st: last month's distance, top and new places
 }
 
 type notifyPrefs struct {

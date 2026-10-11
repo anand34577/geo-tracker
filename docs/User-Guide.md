@@ -3,10 +3,13 @@
 ## The map and timeline
 
 - **Map:** your latest position, the path for the selected day or period, saved places and family members. Use the date picker for any day or range, and the playback bar to replay a day.
-- **Timeline:** each day as **visits** (where you stayed, with place names) and **trips** (how you moved: walk, cycle, drive, train, flight). Tap a trip's transport mode to correct it.
-- **Insights:** distance, time moving, places and countries over any period, with a year heatmap of tracked days.
+- **Timeline:** each day as **visits** (where you stayed, with place names) and **trips** (how you moved: walk, cycle, drive, train, flight). Tap a trip's transport mode to correct it, or the time next to it for **trip details**: the route highlighted on the map, average and top speed, and speed and elevation charts.
+- **Fixing the timeline:** the **⋯** menu on a visit lets you **rename** it, say **which saved place** it really was (or that it was none of them), **merge** it with the next visit (when one stay was split in two), or **delete** it from the timeline. Every change can be undone from the message that follows. Corrections survive timeline rebuilds and never change your recorded points.
+- **Insights:** distance, time moving, places and countries over any period, with a year heatmap of tracked days. Click a place, country or city to open it on the map or the last day you were there.
+- **Monthly recap:** Insights → *Monthly recap* shows a month in review: totals compared with the month before, a map of everywhere you went, highlights (favourite place, busiest day, longest trip) and the places, towns and countries that were **new** that month. With notifications set up, a short recap also arrives on the 1st of each month (Settings → Notifications → *Monthly recap*).
 - **Places:** name the places that matter (home, work, school). Your timeline becomes easier to read and arrival alerts become possible.
-- **Search:** `Ctrl/Cmd + K` jumps to any page, place, person, or a date like `2024-07-15`.
+- **Search:** `Ctrl/Cmd + K` jumps to any page, place, person, or a date like `2024-07-15`. It also searches your history: ask *"when was I last at the office?"* (or just type *office*) to see when you were last there and how often, and press Enter to open that day.
+- **Phone health:** Settings → Devices → *Health* shows a phone's battery over the last two weeks and every time it went quiet for 2 hours or more, with the likely reason: the battery ran out, the phone was lying still (most apps only report movement), or it moved without reporting (app stopped, no signal, location off).
 
 Place names come from reverse geocoding of your *visits* only, never your full track (see [Configuration → Place names](Configuration#place-names)).
 

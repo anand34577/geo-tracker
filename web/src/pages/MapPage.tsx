@@ -78,6 +78,8 @@ export default function MapPage() {
   const empty = stats.data?.count === 0;
   const currentVisit = timeline.data?.visits.at(-1);
   const atVisit = currentVisit && latest.data && latest.data.ts - currentVisit.end < 15 * 60_000;
+  // A fix hours old says nothing about moving: say so instead of "On the move", and point at the phone setup.
+  const silentMs = latest.data ? Date.now() - latest.data.ts : 0;
   const p = picked ? rowToPoint(picked) : null;
 
   return (
@@ -152,12 +154,18 @@ export default function MapPage() {
                     <div className="mb-4 flex items-start justify-between gap-3 border-b border-border pb-4">
                       <div className="min-w-0">
                         <p className="text-xs font-semibold tracking-wide text-subtle uppercase">{t("map.lastSeen")}</p>
-                        <h2 className="mt-0.5 truncate font-semibold">{atVisit ? currentVisit.place_name || currentVisit.name || t("timeline.unknownPlace") : t("map.onTheMove")}</h2>
+                        <h2 className="mt-0.5 truncate font-semibold">{atVisit ? currentVisit.place_name || currentVisit.name || t("timeline.unknownPlace") : silentMs > 60 * 60_000 ? t("map.noRecent") : t("map.onTheMove")}</h2>
                         {latest.data && (
                           <p className="flex flex-wrap gap-x-3 text-sm text-muted">
-                            <span>{ago(latest.data.ts)}</span>
+                            <span title={dateTime(latest.data.ts, clock)}>{ago(latest.data.ts)}</span>
                             {latest.data.batt != null && <span className="flex items-center gap-1"><BatteryMedium className="size-3.5" aria-hidden />{latest.data.batt}%</span>}
                           </p>
+                        )}
+                        {silentMs > 6 * 60 * 60_000 && (
+                          <Link to="/settings/devices" className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-medium text-warning hover:underline">
+                            <Smartphone className="size-3.5" aria-hidden />
+                            {t("map.checkPhone")}
+                          </Link>
                         )}
                       </div>
                       {me && (

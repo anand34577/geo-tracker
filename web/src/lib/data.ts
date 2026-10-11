@@ -60,3 +60,51 @@ export function useMonthDays(month: Date) {
   const to = new Date(month.getFullYear(), month.getMonth() + 2, 0, 23, 59, 59).getTime();
   return useDays(from, to).data;
 }
+/** Great-circle distance in meters. */
+export function haversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const r = Math.PI / 180, a = Math.sin(((lat2 - lat1) * r) / 2) ** 2 + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(((lon2 - lon1) * r) / 2) ** 2;
+  return 12_742_000 * Math.asin(Math.sqrt(a));
+}
+
+export type TripStats = {
+  path: [number, number][];
+  /** [ts, m/s], smoothed over 3 fixes. */
+  speed: [number, number][];
+  /** [ts, meters], only when the phone reported altitude. */
+  elevation: [number, number][];
+  topSpeed: number;
+  climb: number;
+  descent: number;
+};
+
+/** Speed and elevation profile of the points recorded during a trip. */
+export function tripStats(rows: PointRow[], start: number, end: number): TripStats {
+  const pts = rows.filter((r) => r[0] >= start && r[0] <= end);
+  const raw: [number, number][] = [];
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i], dt = (b[0] - a[0]) / 1000;
+    // The phone's own speed reading beats one derived from two fixes.
+    const v = b[4] ?? (dt > 0 ? haversine(a[1], a[2], b[1], b[2]) / dt : 0);
+    if (v < 350) raw.push([b[0], v]); // faster than an airliner is a GPS glitch
+  }
+  const speed = raw.map(([t], i) => {
+    const w = raw.slice(Math.max(0, i - 1), i + 2);
+    return [t, w.reduce((s, x) => s + x[1], 0) / w.length] as [number, number];
+  });
+  const elevation = pts.filter((r) => r[5] != null).map((r) => [r[0], r[5]!] as [number, number]);
+  // Climb counts only changes over 3 m, so GPS altitude jitter doesn't add up to a mountain.
+  let climb = 0, descent = 0, ref = elevation[0]?.[1];
+  for (const [, alt] of elevation) {
+    if (alt - ref! >= 3) { climb += alt - ref!; ref = alt; }
+    else if (ref! - alt >= 3) { descent += ref! - alt; ref = alt; }
+  }
+  const sorted = speed.map((s) => s[1]).sort((a, b) => a - b);
+  return {
+    path: pts.map((r) => [r[2], r[1]]),
+    speed,
+    elevation,
+    topSpeed: sorted[Math.floor(sorted.length * 0.95)] ?? 0, // 95th percentile: one bad fix isn't a top speed
+    climb,
+    descent,
+  };
+}

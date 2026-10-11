@@ -6,7 +6,7 @@
 services:
   geotracker:
     # Pinned to a minor version: patch releases arrive on `docker compose pull`, upgrades are deliberate.
-    image: ghcr.io/anand34577/geotracker:0.3
+    image: ghcr.io/anand34577/geotracker:0.4
     restart: unless-stopped # also applies restores started from the UI
     env_file: .env
     environment:

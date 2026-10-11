@@ -7,7 +7,7 @@ import { Button, ErrorState, Field, Input, Notice, Section, Skeleton, useToast }
 import { Slider, Stepper, Switch } from "../../components/controls";
 
 type Resp = { prefs: NotifyPrefs; smtp_configured: boolean };
-const events: NotifyEvent[] = ["place_arrive", "place_leave", "family", "device_silent", "battery_low", "import_done"];
+const events: NotifyEvent[] = ["place_arrive", "place_leave", "family", "device_silent", "battery_low", "import_done", "monthly_recap"];
 
 export default function NotificationsTab() {
   const { t } = useTranslation();

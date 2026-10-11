@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { BatteryMedium, Check, Copy, KeyRound, Plus, Smartphone, Trash2 } from "lucide-react";
+import { Activity, BatteryLow, BatteryMedium, Check, ChevronDown, Copy, KeyRound, MoonStar, Plus, Smartphone, Trash2, WifiOff, type LucideIcon } from "lucide-react";
 import { renderSVG } from "uqr";
 import { useTranslation } from "react-i18next";
-import { api, queryClient, useConfig, type Device } from "../../lib/api";
-import { ago } from "../../lib/format";
+import { api, queryClient, useConfig, type Device, type DeviceHealth, type QuietSpell } from "../../lib/api";
+import { ago, dateTime, distance, duration, number } from "../../lib/format";
+import { usePrefs } from "../../lib/prefs";
+import i18n from "../../lib/i18n";
+import { AreaChart } from "../../components/Chart";
 import { RadioCards } from "../../components/controls";
 import { Button, ConfirmDialog, Dialog, EmptyState, ErrorState, Field, Input, Notice, Section, Skeleton, cn, useToast } from "../../components/ui";
 
@@ -148,6 +151,7 @@ export default function DevicesTab() {
   const [form, setForm] = useState({ name: "", client: "colota" });
   const [created, setCreated] = useState<{ device: Device; token: string } | null>(null);
   const [deleting, setDeleting] = useState<Device | null>(null);
+  const [health, setHealth] = useState<number | null>(null);
 
   const create = useMutation({
     meta: { inline: true }, // error shown in the form
@@ -192,7 +196,8 @@ export default function DevicesTab() {
         ) : (
           <ul className="-my-2 divide-y divide-border">
             {devices.data.map((d) => (
-              <li key={d.id} className="flex flex-wrap items-center gap-3 py-3">
+              <li key={d.id} className="py-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <Smartphone className="size-5 text-muted" aria-hidden />
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">{d.name}</p>
@@ -202,12 +207,20 @@ export default function DevicesTab() {
                     {d.last_battery != null && <span className="flex items-center gap-1"><BatteryMedium className="size-3.5" aria-hidden />{d.last_battery}%</span>}
                   </p>
                 </div>
+                {d.last_seen_at && (
+                  <Button size="sm" variant={health === d.id ? "secondary" : "ghost"} icon={Activity} aria-expanded={health === d.id} onClick={() => setHealth(health === d.id ? null : d.id)}>
+                    {t("devices.health")}
+                    <ChevronDown className={cn("size-3.5 transition-transform", health === d.id && "rotate-180")} aria-hidden />
+                  </Button>
+                )}
                 <Button size="sm" variant="ghost" icon={KeyRound} loading={rotate.isPending && rotate.variables?.id === d.id} onClick={() => rotate.mutate(d)}>
                   {t("devices.newToken")}
                 </Button>
                 <Button size="icon" variant="ghost" aria-label={t("common.delete")} onClick={() => setDeleting(d)}>
                   <Trash2 className="size-4" />
                 </Button>
+              </div>
+              {health === d.id && <HealthPanel device={d} />}
               </li>
             ))}
           </ul>
@@ -249,5 +262,83 @@ export default function DevicesTab() {
       <ConfirmDialog open={!!deleting} onClose={() => setDeleting(null)} onConfirm={() => deleting && del.mutate(deleting)} loading={del.isPending}
         title={t("devices.removeTitle", { name: deleting?.name })} body={t("devices.removeBody")} confirmLabel={t("devices.remove")} />
     </>
+  );
+}
+
+const reasonIcon: Record<QuietSpell["reason"], LucideIcon> = { battery: BatteryLow, stationary: MoonStar, offline: WifiOff, silent: WifiOff };
+const HEALTH_DAYS = 14;
+
+/** Battery over two weeks and every time the phone went quiet, with the likely reason. */
+function HealthPanel({ device }: { device: Device }) {
+  const { t } = useTranslation();
+  const { units, clock } = usePrefs();
+  const [showStill, setShowStill] = useState(false);
+  const q = useQuery({ queryKey: ["device-health", device.id], queryFn: () => api<DeviceHealth>(`/devices/${device.id}/health?days=${HEALTH_DAYS}`) });
+  if (q.isError) return <ErrorState error={q.error} retry={() => q.refetch()} />;
+  if (!q.data) return <Skeleton className="mt-3 h-40" />;
+  const h = q.data;
+  const still = h.spells.filter((s) => s.reason === "stationary");
+  const shown = h.spells.filter((s) => showStill || s.reason !== "stationary");
+  const problems = h.spells.length - still.length;
+  const pct = Math.round(Math.max(0, Math.min(1, h.coverage)) * 100);
+  const day = (x: number) => new Date(x).toLocaleDateString(i18n.language, { day: "numeric", month: "short" });
+  return (
+    <div className="gt-pop mt-3 space-y-5 rounded-xl border border-border bg-surface-2/50 p-4">
+      <p className="text-sm font-semibold">{t("devices.healthTitle", { days: HEALTH_DAYS })}</p>
+      <dl className="grid grid-cols-3 gap-2">
+        <div className="rounded-lg bg-surface px-3 py-2" title={t("devices.coverageHint")}>
+          <dt className="text-[11px] text-subtle">{t("devices.coverage")}</dt>
+          <dd className={cn("font-semibold tabular-nums", pct >= 95 ? "text-success" : pct >= 80 ? "text-fg" : "text-warning")}>{pct}%</dd>
+        </div>
+        <div className="rounded-lg bg-surface px-3 py-2">
+          <dt className="text-[11px] text-subtle">{t("devices.fixes")}</dt>
+          <dd className="font-semibold tabular-nums">{number(h.fixes)}</dd>
+        </div>
+        <div className="rounded-lg bg-surface px-3 py-2">
+          <dt className="text-[11px] text-subtle">{t("devices.quiet")}</dt>
+          <dd className={cn("font-semibold tabular-nums", problems > 0 && "text-warning")}>{problems}</dd>
+        </div>
+      </dl>
+      {h.fixes === 0 ? (
+        <p className="text-sm text-muted">{t("devices.noFixes")}</p>
+      ) : h.battery.length > 1 ? (
+        <div className="pt-6">
+          <AreaChart data={h.battery} label={t("devices.batteryChart")} yMin={0} yMax={100} height={72} formatY={(v) => `${Math.round(v)}%`} formatX={day} />
+        </div>
+      ) : (
+        <p className="text-sm text-muted">{t("devices.noBattery")}</p>
+      )}
+      {h.fixes > 0 && (
+        <div>
+          {problems === 0 && <p className="mb-2 flex items-center gap-2 text-sm text-success"><Check className="size-4" aria-hidden />{t("devices.allGood")}</p>}
+          <ol className="space-y-1.5">
+            {shown.map((s) => {
+              const I = reasonIcon[s.reason];
+              const tone = s.reason === "stationary" ? "bg-surface-3 text-muted" : s.reason === "battery" ? "bg-danger-subtle text-danger" : "bg-warning-subtle text-warning";
+              return (
+                <li key={s.from} className="flex items-start gap-3 rounded-lg bg-surface px-3 py-2.5 text-sm">
+                  <span className={cn("mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg", tone)}><I className="size-4" aria-hidden /></span>
+                  <div className="min-w-0 flex-1">
+                    <p className="flex flex-wrap items-baseline justify-between gap-x-3">
+                      <span className="font-medium">{t(`devices.reason.${s.reason}`)}</span>
+                      <span className="text-xs text-subtle tabular-nums">{s.to ? duration(s.to - s.from) : t("devices.stillQuiet")}</span>
+                    </p>
+                    <p className="text-xs text-muted tabular-nums">{dateTime(s.from, clock)}{s.to ? ` – ${dateTime(s.to, clock)}` : ""}</p>
+                    <p className="mt-0.5 text-xs text-subtle">
+                      {t(`devices.reasonHint.${s.reason}`, { before: s.batt_before ?? "?", after: s.batt_after ?? "?", distance: distance(s.moved_m, units) })}
+                    </p>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+          {still.length > 0 && (
+            <button onClick={() => setShowStill(!showStill)} className="mt-2 text-sm font-medium text-primary hover:underline">
+              {showStill ? t("devices.hideStill") : t("devices.showStill", { count: still.length })}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

@@ -142,6 +142,10 @@ function CreatedLink({ url, expires }: { url: string; expires: string }) {
         <Input readOnly value={url} className="font-mono text-xs" onFocus={(e) => e.target.select()} aria-label={t("share.link")} />
         <Button variant="primary" icon={copied ? Check : Copy} onClick={() => navigator.clipboard.writeText(url).then(() => setCopied(true))}>{copied ? t("common.copied") : t("common.copy")}</Button>
       </div>
+      {/* Phones: hand the link straight to WhatsApp, Messages, etc. */}
+      {"share" in navigator && (
+        <Button icon={Share2} className="w-full justify-center" onClick={() => navigator.share({ url }).catch(() => {})}>{t("share.sendVia")}</Button>
+      )}
       <p className="text-sm text-muted">{t("share.readyBody", { when: expires })}</p>
     </div>
   );

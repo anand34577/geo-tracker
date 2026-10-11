@@ -11,8 +11,9 @@ import {
   type ReactNode,
 } from "react";
 import { setErrorToast } from "../lib/api";
-import { AlertTriangle, CheckCircle2, Loader2, X, type LucideIcon } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Eye, EyeOff, Loader2, X, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import i18n from "../lib/i18n";
 
 export const cn = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(" ");
 
@@ -75,8 +76,25 @@ export function Field({ label, hint, error, children }: { label: string; hint?: 
 const control =
   "h-10 w-full rounded-lg border border-border-strong bg-surface px-3 text-sm text-fg placeholder:text-subtle transition-colors focus:border-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-60";
 
-export function Input({ className, ...rest }: InputHTMLAttributes<HTMLInputElement>) {
-  return <input className={cn(control, className)} {...rest} />;
+export function Input({ className, type, ...rest }: InputHTMLAttributes<HTMLInputElement>) {
+  const [shown, setShown] = useState(false);
+  if (type !== "password") return <input type={type} className={cn(control, className)} {...rest} />;
+  // Secrets get a reveal toggle: typos in a password or API token are otherwise invisible.
+  return (
+    <div className="relative">
+      <input type={shown ? "text" : "password"} className={cn(control, "pr-10", className)} {...rest} />
+      <button
+        type="button"
+        onClick={() => setShown(!shown)}
+        aria-pressed={shown}
+        aria-label={i18n.t(shown ? "common.hidePassword" : "common.showPassword")}
+        title={i18n.t(shown ? "common.hidePassword" : "common.showPassword")}
+        className="absolute inset-y-0 right-0 grid w-10 place-items-center rounded-r-lg text-subtle hover:text-fg"
+      >
+        {shown ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+      </button>
+    </div>
+  );
 }
 
 /** Segmented control for 2–4 mutually exclusive options. */
@@ -137,7 +155,7 @@ export function Skeleton({ className }: { className?: string }) {
 export function Spinner({ label }: { label?: string }) {
   const { t } = useTranslation();
   return (
-    <div role="status" className="flex items-center justify-center gap-2 p-8 text-sm text-muted">
+    <div role="status" className="flex h-full min-h-32 items-center justify-center gap-2 p-8 text-sm text-muted">
       <Loader2 className="size-5 animate-spin" aria-hidden />
       {label ?? t("common.loading")}
     </div>
@@ -280,15 +298,18 @@ export function ConfirmDialog({ open, onClose, onConfirm, title, body, confirmLa
 
 // ── Toasts ───────────────────────────────────────────────────
 
-type Toast = { id: number; tone: "success" | "error"; text: string };
-const ToastCtx = createContext<(tone: Toast["tone"], text: string) => void>(() => {});
+/** An optional button on a toast, e.g. "Undo" after a delete. */
+type ToastAction = { label: string; run: () => void };
+type Toast = { id: number; tone: "success" | "error"; text: string; action?: ToastAction };
+const ToastCtx = createContext<(tone: Toast["tone"], text: string, action?: ToastAction) => void>(() => {});
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const push = useCallback((tone: Toast["tone"], text: string) => {
+  const push = useCallback((tone: Toast["tone"], text: string, action?: ToastAction) => {
     const id = Date.now() + Math.random();
-    setToasts((ts) => [...ts.slice(-2), { id, tone, text }]);
-    setTimeout(() => setToasts((ts) => ts.filter((t) => t.id !== id)), tone === "error" ? 7000 : 4000);
+    setToasts((ts) => [...ts.slice(-2), { id, tone, text, action }]);
+    // Toasts with an action stay longer: there's something to decide.
+    setTimeout(() => setToasts((ts) => ts.filter((t) => t.id !== id)), tone === "error" || action ? 7000 : 4000);
   }, []);
   useEffect(() => { setErrorToast((text) => push("error", text)); }, [push]);
   return (
@@ -296,9 +317,20 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-20 z-[500] flex flex-col items-center gap-2 px-4 md:bottom-6">
         {toasts.map((t) => (
-          <div key={t.id} role={t.tone === "error" ? "alert" : "status"} className="pointer-events-auto flex max-w-md items-center gap-2 rounded-xl border border-border bg-surface px-4 py-3 text-sm shadow-pop">
+          <div key={t.id} role={t.tone === "error" ? "alert" : "status"} className="gt-pop pointer-events-auto flex max-w-md items-center gap-2 rounded-xl border border-border bg-surface px-4 py-3 text-sm shadow-pop">
             {t.tone === "success" ? <CheckCircle2 className="size-4 shrink-0 text-success" /> : <AlertTriangle className="size-4 shrink-0 text-danger" />}
-            {t.text}
+            <span className="flex-1">{t.text}</span>
+            {t.action && (
+              <button
+                onClick={() => { t.action!.run(); setToasts((ts) => ts.filter((x) => x.id !== t.id)); }}
+                className="shrink-0 rounded-md px-2 py-1 text-sm font-semibold text-primary hover:bg-primary-subtle"
+              >
+                {t.action.label}
+              </button>
+            )}
+            <button onClick={() => setToasts((ts) => ts.filter((x) => x.id !== t.id))} className="-mr-1 grid size-6 shrink-0 place-items-center rounded text-subtle hover:text-fg" aria-label={i18n.t("common.close")}>
+              <X className="size-3.5" />
+            </button>
           </div>
         ))}
       </div>

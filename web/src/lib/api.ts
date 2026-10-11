@@ -25,7 +25,7 @@ export type Config = { version: string; base_url: string; basemaps: Basemap[]; b
 export type AuthMethods = { password: boolean; oidc: boolean; oidc_label: string };
 export type GeocodeHit = { name: string; address: string; lat: number; lon: number };
 
-export type NotifyEvent = "place_arrive" | "place_leave" | "family" | "device_silent" | "battery_low" | "import_done" | "backup_failed";
+export type NotifyEvent = "place_arrive" | "place_leave" | "family" | "device_silent" | "battery_low" | "import_done" | "backup_failed" | "monthly_recap";
 export type NotifyPrefs = {
   email: { enabled: boolean; to: string };
   gotify: { enabled: boolean; url: string; token: string; priority: number };
@@ -86,6 +86,12 @@ export type Visit = {
   place_id?: number;
   place_name?: string;
   place_icon?: string;
+  /** The user's corrections. */
+  edited?: boolean;
+  custom_name?: string;
+  pinned_place?: number;
+  no_place?: boolean;
+  merged_to?: number;
 };
 export type TripMode = "walk" | "cycle" | "drive" | "train" | "flight" | "unknown";
 export type Trip = { id: number; start: number; end: number; distance: number; mode: TripMode; confidence: number; corrected?: boolean };
@@ -294,11 +300,21 @@ export type Insights = {
   days_tracked: number;
   daily: { day: string; distance: number; moving_ms: number; visits: number; points: number }[];
   modes: { mode: TripMode; distance: number; ms: number; trips: number }[];
-  top_places: { name: string; city?: string; country?: string; lat: number; lon: number; place_id?: number; icon?: string; visits: number; ms: number }[];
-  countries: { name: string; visits: number; ms: number; first: number }[];
-  cities: { name: string; country?: string; visits: number; ms: number; first: number }[];
+  top_places: InsightPlace[];
+  countries: InsightArea[];
+  cities: InsightArea[];
   longest_trip: Trip | null;
+  /** With ?new=1: first-ever visits in the range. */
+  new?: { places: InsightPlace[]; cities: InsightArea[]; countries: InsightArea[] };
 };
+export type InsightPlace = { name: string; city?: string; country?: string; lat: number; lon: number; place_id?: number; icon?: string; visits: number; ms: number; last: number };
+export type InsightArea = { name: string; country?: string; visits: number; ms: number; first: number; last: number };
+
+/** "When was I last at …?" */
+export type PlaceHit = { name: string; detail?: string; place_id?: number; icon?: string; lat: number; lon: number; visits: number; total_ms: number; first: number; last_start: number; last_end: number };
+
+export type QuietSpell = { from: number; to: number; reason: "battery" | "stationary" | "offline" | "silent"; batt_before: number | null; batt_after: number | null; moved_m: number };
+export type DeviceHealth = { from: number; fixes: number; spells: QuietSpell[]; battery: [number, number][]; coverage: number };
 
 export type Share = {
   id: number;

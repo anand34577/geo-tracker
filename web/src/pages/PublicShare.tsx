@@ -90,7 +90,7 @@ export default function PublicShare() {
             <p className="flex items-center gap-2"><Clock className="size-4 text-primary" aria-hidden />{rangeLabel({ from: d.from!, to: d.to! })}</p>
           )}
           <p className="text-xs text-subtle">
-            {t("share.linkExpires", { when: dateTime(d.expires_at, "24h") })}
+            {t("share.linkExpires", { when: dateTime(d.expires_at) })}
             {d.precision === "approx" && ` · ${t("share.approxShort")}`}
           </p>
         </div>
