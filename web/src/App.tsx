@@ -3,7 +3,7 @@ import { createBrowserRouter, Link, Navigate, NavLink, Outlet, useLocation, useN
 import { useQuery } from "@tanstack/react-query";
 import { BarChart3, CalendarDays, ChevronsUpDown, LogOut, Map as MapIcon, MapPin, Menu, Search, Settings, Share2, ShieldCheck, Users, Zap, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { api, queryClient, useMe, useUser } from "./lib/api";
+import { api, queryClient, useConfig, useMe, useUser } from "./lib/api";
 import { useLiveUpdates } from "./lib/live";
 import { useApplyPrefs } from "./lib/prefs";
 import { cn, EmptyState, ErrorState, Spinner } from "./components/ui";
@@ -16,6 +16,7 @@ import { Login, Setup } from "./pages/Auth";
 const MapPage = lazy(() => import("./pages/MapPage"));
 const TimelinePage = lazy(() => import("./pages/TimelinePage"));
 const InsightsPage = lazy(() => import("./pages/InsightsPage"));
+const RecapPage = lazy(() => import("./pages/RecapPage"));
 const PlacesPage = lazy(() => import("./pages/PlacesPage"));
 const AutomationsPage = lazy(() => import("./pages/AutomationsPage"));
 const SharingPage = lazy(() => import("./pages/SharingPage"));
@@ -37,6 +38,7 @@ export const router = createBrowserRouter([
           { index: true, element: <MapPage /> },
           { path: "timeline/:date?", element: <TimelinePage /> },
           { path: "insights", element: <InsightsPage /> },
+          { path: "insights/recap/:month?", element: <RecapPage /> },
           { path: "places", element: <PlacesPage /> },
           { path: "family", element: <FamilyPage /> },
           { path: "automations", element: <AutomationsPage /> },
@@ -68,6 +70,7 @@ function Authed() {
   const user = useUser();
   useApplyPrefs(user.prefs);
   useLiveUpdates();
+  useConfig(); // fetch map config alongside the page, not after the lazy map chunk loads
   return <Outlet />;
 }
 

@@ -20,7 +20,7 @@ export const PlaceIcon = ({ name, className }: { name?: string; className?: stri
 
 export type PlaceDraft = Partial<Pick<Place, "id" | "name" | "icon" | "radius" | "private">> & { lat: number; lon: number };
 
-export function PlaceDialog({ draft, onClose }: { draft: PlaceDraft | null; onClose: () => void }) {
+export function PlaceDialog({ draft, onClose, onSaved }: { draft: PlaceDraft | null; onClose: () => void; onSaved?: (p: Place) => void }) {
   const { t } = useTranslation();
   const toast = useToast();
   const [form, setForm] = useState({ name: "", icon: "map-pin", radius: 75, private: false });
@@ -45,10 +45,11 @@ export function PlaceDialog({ draft, onClose }: { draft: PlaceDraft | null; onCl
         method: draft?.id ? "PUT" : "POST",
         body: { ...form, lat: draft!.lat, lon: draft!.lon },
       }),
-    onSuccess: () => {
+    onSuccess: (p) => {
       queryClient.invalidateQueries({ queryKey: ["places"] });
       queryClient.invalidateQueries({ queryKey: ["timeline"] });
       toast("success", t("places.saved", { name: form.name }));
+      onSaved?.(p);
       onClose();
     },
   });

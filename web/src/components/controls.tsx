@@ -89,7 +89,7 @@ export function Popover({ anchor, open, onClose, children, className, align = "s
   return createPortal(
     <div
       ref={panel}
-      className={cn("fixed z-[450] overflow-auto rounded-xl border border-border bg-surface text-fg shadow-pop", className)}
+      className={cn("fixed z-[450] overflow-auto rounded-xl border border-border bg-surface text-fg shadow-pop", pos && "gt-pop", className)}
       style={{ top: pos?.top ?? -9999, left: pos?.left ?? -9999, maxHeight: pos?.maxH, visibility: pos ? "visible" : "hidden" }}
     >
       {children}

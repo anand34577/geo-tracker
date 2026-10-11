@@ -123,7 +123,7 @@ function People({ people, loading, onAlert }: { people?: FamilyPerson[]; loading
 }
 
 function sharingSummary(m: Member, t: TFunction) {
-  if (m.paused_until && m.paused_until > Date.now()) return t("family.pausedUntil", { when: dateTime(m.paused_until, "24h") });
+  if (m.paused_until && m.paused_until > Date.now()) return t("family.pausedUntil", { when: dateTime(m.paused_until) });
   const parts = [m.share_live ? t("family.sumLive") : t("family.sumNoLive"), t(`family.hist.${m.share_history_days}`)];
   if (m.precision === "approx") parts.push(t("family.sumApprox"));
   return parts.join(" · ");

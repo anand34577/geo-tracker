@@ -1,6 +1,10 @@
 import { format as fmt } from "date-fns";
 import type { Prefs, TripMode } from "./api";
 import i18n from "./i18n";
+import { cachedPrefs } from "./prefs";
+
+// Callers without the prefs at hand still get the user's 12h/24h choice.
+const clockPref = (): Prefs["clock"] => cachedPrefs().clock ?? "24h";
 
 export function distance(m: number, units: Prefs["units"] = "metric"): string {
   if (units === "imperial") {
@@ -22,11 +26,11 @@ export function duration(ms: number): string {
   return `${Math.round(h / 24)} d`;
 }
 
-export function time(ts: number, clock: Prefs["clock"] = "24h"): string {
+export function time(ts: number, clock: Prefs["clock"] = clockPref()): string {
   return fmt(ts, clock === "12h" ? "h:mm a" : "HH:mm");
 }
 
-export function dateTime(ts: number, clock: Prefs["clock"] = "24h"): string {
+export function dateTime(ts: number, clock: Prefs["clock"] = clockPref()): string {
   return fmt(ts, clock === "12h" ? "d MMM yyyy, h:mm a" : "d MMM yyyy, HH:mm");
 }
 

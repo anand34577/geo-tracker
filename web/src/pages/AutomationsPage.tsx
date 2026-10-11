@@ -53,7 +53,9 @@ export default function AutomationsPage() {
   });
   const toggle = useMutation({
     mutationFn: (a: Automation) => api(`/automations/${a.id}`, { method: "PUT", body: toBody({ ...toForm(a), enabled: !a.enabled }) }),
-    onSuccess: refresh,
+    // Flip the switch at once; the refetch afterwards corrects it if the save failed.
+    onMutate: (a) => queryClient.setQueryData<Automation[]>(["automations"], (xs) => xs?.map((x) => (x.id === a.id ? { ...x, enabled: !a.enabled } : x))),
+    onSettled: refresh,
     onError: (e) => toast("error", e.message),
   });
   const remove = useMutation({

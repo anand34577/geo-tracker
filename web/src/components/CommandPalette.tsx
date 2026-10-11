@@ -1,16 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { BarChart3, CalendarDays, CornerDownLeft, Database, Map as MapIcon, MapPin, Moon, Palette, Search, Settings, Share2, ShieldCheck, Smartphone, Sun, Upload, Users, Zap, type LucideIcon } from "lucide-react";
+import { BarChart3, Bell, Sparkles, CalendarDays, CornerDownLeft, Map as MapIcon, MapPin, Moon, Palette, Search, Settings, Share2, ShieldCheck, Smartphone, Sun, Upload, Users, Zap, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { isValid, parse, subDays } from "date-fns";
-import { useUser } from "../lib/api";
-import { dayKey } from "../lib/format";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { api, useUser, type PlaceHit } from "../lib/api";
+import { dateTime, dayKey } from "../lib/format";
 import { useFamily, usePlaces } from "../lib/data";
 import { useIsDark, useSavePrefs } from "../lib/prefs";
 import { PlaceIcon } from "./places";
 import { Avatar, cn } from "./ui";
 
-type Item = { id: string; label: string; hint?: string; icon: React.ReactNode; run: () => void; keywords?: string };
+type Item = { id: string; label: string; hint?: string; icon: React.ReactNode; run: () => void; keywords?: string; group?: "history" };
 
 const ico = (I: LucideIcon) => <I className="size-4" aria-hidden />;
 
@@ -51,36 +52,64 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     if (!open && d.open) d.close();
   }, [open]);
 
+  // "When was I last at the office?": places from your history, searched on the server.
+  const [debounced, setDebounced] = useState("");
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(q.trim()), 250);
+    return () => clearTimeout(id);
+  }, [q]);
+  const history = useQuery({
+    queryKey: ["visit-search", debounced],
+    queryFn: () => api<PlaceHit[]>(`/visits/search?q=${encodeURIComponent(debounced)}`),
+    enabled: open && debounced.length >= 2 && !parseDate(debounced),
+    staleTime: 60_000,
+    placeholderData: keepPreviousData,
+  });
+
   const go = (path: string) => () => navigate(path);
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [];
     const date = parseDate(q);
+    if (!date && q.trim().length >= 2) {
+      for (const h of history.data ?? []) {
+        out.push({
+          id: `h${h.place_id ?? ""}${h.name}${h.lat}`,
+          label: h.detail && h.detail !== h.name ? `${h.name} · ${h.detail}` : h.name,
+          hint: t("cmd.lastHere", { when: dateTime(h.last_start), count: h.visits }),
+          icon: <PlaceIcon name={h.icon} className="size-4" />,
+          run: go(`/timeline/${dayKey(h.last_start)}`),
+          group: "history",
+          keywords: q, // already matched on the server
+        });
+      }
+    }
     if (date) out.push({ id: "date", label: t("cmd.openDay", { date: date.toLocaleDateString(undefined, { dateStyle: "full" }) }), icon: ico(CalendarDays), run: go(`/timeline/${dayKey(date)}`) });
     const pages: [string, string, LucideIcon, string?][] = [
       ["/", t("nav.map"), MapIcon],
       ["/timeline", t("nav.timeline"), CalendarDays, "day history"],
       ["/insights", t("nav.insights"), BarChart3, "stats statistics charts"],
+      ["/insights/recap", t("recap.open"), Sparkles, "month review summary year wrapped"],
       ["/places", t("nav.places"), MapPin],
       ["/family", t("nav.family"), Users, "group people share"],
       ["/automations", t("nav.automations"), Zap, "geofence webhook arrive leave notify home assistant ntfy telegram"],
       ["/sharing", t("nav.sharing"), Share2, "link"],
       ["/settings/devices", t("settings.devices"), Smartphone, "phone app owntracks colota token"],
       ["/settings/data", t("settings.data"), Upload, "import export google takeout gpx"],
-      ["/settings/notifications", t("settings.notifications"), Database, "email gotify alert"],
+      ["/settings/notifications", t("settings.notifications"), Bell, "email gotify alert"],
       ["/settings/appearance", t("settings.appearance"), Palette, "theme color units"],
       ["/settings", t("nav.settings"), Settings, "profile password sessions"],
       ...(user.role === "admin" ? ([["/admin", t("nav.admin"), ShieldCheck, "users backup restore audit sso smtp maps"]] as [string, string, LucideIcon, string][]) : []),
     ];
     for (const [path, label, I, kw] of pages) out.push({ id: "p" + path, label, hint: t("cmd.page"), icon: ico(I), run: go(path), keywords: kw });
     out.push({ id: "theme", label: dark ? t("cmd.light") : t("cmd.dark"), hint: t("cmd.action"), icon: ico(dark ? Sun : Moon), run: () => savePrefs({ theme: dark ? "light" : "dark" }), keywords: "theme dark light mode" });
-    for (const p of places.data ?? []) out.push({ id: "pl" + p.id, label: p.name, hint: t("cmd.place"), icon: <PlaceIcon name={p.icon} className="size-4" />, run: go("/places") });
+    for (const p of places.data ?? []) out.push({ id: "pl" + p.id, label: p.name, hint: t("cmd.place"), icon: <PlaceIcon name={p.icon} className="size-4" />, run: go(`/places?place=${p.id}`), keywords: "place" });
     for (const p of family.data ?? []) {
       if (p.point) out.push({ id: "fm" + p.user_id, label: p.name, hint: t("cmd.onMap"), icon: <Avatar name={p.name} color={p.color} className="size-5 text-[9px]" />, run: go(`/?person=${p.user_id}`) });
       if (p.history_from != null) out.push({ id: "ft" + p.user_id, label: t("timeline.whoseTitle", { name: p.name }), hint: t("nav.timeline"), icon: ico(CalendarDays), run: go(`/timeline?user=${p.user_id}`) });
     }
     const needle = q.trim().toLowerCase();
     return needle && !date ? out.filter((i) => (i.label + " " + (i.keywords ?? "") + " " + (i.hint ?? "")).toLowerCase().includes(needle)) : out;
-  }, [q, places.data, family.data, dark, user.role]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [q, places.data, family.data, dark, user.role, history.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { setActive(0); }, [q]);
   useEffect(() => { list.current?.querySelector(`[data-i="${active}"]`)?.scrollIntoView({ block: "nearest" }); }, [active]);
@@ -120,10 +149,13 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
             <kbd className="rounded border border-border px-1.5 py-0.5 text-[11px] text-subtle">Esc</kbd>
           </div>
           <ul id="cmd-list" ref={list} role="listbox" className="max-h-[50vh] overflow-y-auto p-2">
-            {items.length === 0 && <li className="px-3 py-6 text-center text-sm text-muted">{t("cmd.none")}</li>}
+            {items.length === 0 && <li className="px-3 py-6 text-center text-sm text-muted">{history.isFetching ? t("cmd.searching") : t("cmd.none")}</li>}
             {items.map((i, n) => (
+              <Fragment key={i.id}>
+              {(n === 0 ? i.group : items[n - 1].group !== i.group) && (
+                <li role="presentation" className="px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wide text-subtle uppercase">{i.group ? t("cmd.history") : t("nav.pages")}</li>
+              )}
               <li
-                key={i.id}
                 id={`cmd-${i.id}`}
                 data-i={n}
                 role="option"
@@ -134,9 +166,10 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
               >
                 <span className="grid size-7 shrink-0 place-items-center rounded-md bg-surface-2 text-muted">{i.icon}</span>
                 <span className="min-w-0 flex-1 truncate">{i.label}</span>
-                {i.hint && <span className="text-xs text-subtle">{i.hint}</span>}
+                {i.hint && <span className="shrink-0 text-xs text-subtle">{i.hint}</span>}
                 {n === active && <CornerDownLeft className="size-3.5 text-subtle" aria-hidden />}
               </li>
+              </Fragment>
             ))}
           </ul>
           <p className="border-t border-border px-4 py-2 text-xs text-subtle">{t("cmd.tip")}</p>

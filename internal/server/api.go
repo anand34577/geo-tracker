@@ -156,6 +156,21 @@ func matchPlace(places []store.Place, lat, lon float64) *store.Place {
 	return best
 }
 
+// visitPlace is the saved place a visit belongs to: the user's pick when they corrected it,
+// otherwise the nearest place containing it. (A family member's pick names *their* place,
+// which isn't among the viewer's places, so the viewer gets the automatic match.)
+func visitPlace(places []store.Place, v store.VisitRow) *store.Place {
+	if v.NoPlace {
+		return nil
+	}
+	for i := range places {
+		if v.PinnedPlace != 0 && places[i].ID == v.PinnedPlace {
+			return &places[i]
+		}
+	}
+	return matchPlace(places, v.Lat, v.Lon)
+}
+
 func (s *Server) getTimeline(w http.ResponseWriter, r *http.Request, u *store.User) {
 	from, to, ok := timeRange(r)
 	if !ok {
@@ -183,10 +198,10 @@ func (s *Server) getTimeline(w http.ResponseWriter, r *http.Request, u *store.Us
 			continue
 		}
 		if sv.approx {
-			v.Name, v.Address, v.Lat, v.Lon, v.Radius = v.City, "", coarsen(v.Lat), coarsen(v.Lon), 1000
+			v.Name, v.Address, v.Lat, v.Lon, v.Radius, v.CustomName = v.City, "", coarsen(v.Lat), coarsen(v.Lon), 1000, ""
 		}
 		o := visitOut{VisitRow: v}
-		if p := matchPlace(places, v.Lat, v.Lon); p != nil && !sv.approx {
+		if p := visitPlace(places, v); p != nil && !sv.approx {
 			o.PlaceID, o.PlaceName, o.PlaceIcon = p.ID, p.Name, p.Icon
 		}
 		out = append(out, o)
@@ -230,7 +245,7 @@ func (s *Server) listPlaces(w http.ResponseWriter, r *http.Request, u *store.Use
 		idx[p.ID] = i
 	}
 	for _, v := range visits {
-		if p := matchPlace(places, v.Lat, v.Lon); p != nil {
+		if p := visitPlace(places, v); p != nil {
 			o := &out[idx[p.ID]]
 			o.Visits++
 			o.TotalMs += v.End - v.Start

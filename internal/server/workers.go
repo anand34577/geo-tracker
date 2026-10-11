@@ -262,6 +262,7 @@ func (s *Server) maintenanceLoop(ctx context.Context) {
 			}
 		}
 		s.checkSilentDevices(ctx)
+		s.sendMonthlyRecaps(ctx)
 	}
 }
 

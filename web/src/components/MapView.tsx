@@ -27,6 +27,8 @@ type Props = {
   visits?: { id: number; lon: number; lat: number; active?: boolean }[];
   places?: { id: number; lon: number; lat: number; radius: number }[];
   me?: { lon: number; lat: number; acc?: number } | null;
+  /** A highlighted stretch (e.g. one trip), drawn over the path; the map zooms to it when `key` changes. */
+  highlight?: { path: LonLat[]; key: string } | null;
   /** Playback head. */
   marker?: { lon: number; lat: number } | null;
   /** Family members, drawn as avatar markers. */
@@ -68,25 +70,30 @@ function circle(lon: number, lat: number, r: number, n = 48): LonLat[] {
 
 const fc = <T,>(items: T[] | undefined, f: (x: T, i: number) => object) => ({ type: "FeatureCollection" as const, features: (items ?? []).map(f) as never[] });
 
-function collections(d: Props) {
-  const me = d.me;
-  return {
-    path: fc(d.path?.filter((s) => s.length > 1), (s) => ({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: s } })),
-    pts: fc(d.points, (r, i) => ({ type: "Feature", properties: { i }, geometry: { type: "Point", coordinates: [r[2], r[1]] } })),
-    visits: fc(d.visits, (v) => ({ type: "Feature", properties: { id: v.id, active: !!v.active }, geometry: { type: "Point", coordinates: [v.lon, v.lat] } })),
-    places: fc(d.places, (p) => ({ type: "Feature", properties: { id: p.id }, geometry: { type: "Polygon", coordinates: [circle(p.lon, p.lat, p.radius)] } })),
-    me: me
-      ? fc(["acc", "dot"], (kind) =>
-          kind === "acc"
-            ? { type: "Feature", properties: { kind }, geometry: { type: "Polygon", coordinates: [circle(me.lon, me.lat, Math.max(me.acc ?? 0, 5))] } }
-            : { type: "Feature", properties: { kind }, geometry: { type: "Point", coordinates: [me.lon, me.lat] } })
-      : EMPTY,
-    head: fc(d.marker ? [d.marker] : [], (m) => ({ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [m.lon, m.lat] } })),
-  };
-}
+// Each source re-uploads only when its input changes: during playback the head marker moves every
+// frame, and re-sending thousands of points with it made the map stutter. `key` is compared with ===,
+// so small inputs that parents rebuild every render (visits, me, marker) are keyed by value.
+const sources: Record<string, { key: (d: Props) => unknown; build: (d: Props) => object }> = {
+  path: { key: (d) => d.path, build: (d) => fc(d.path?.filter((s) => s.length > 1), (s) => ({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: s } })) },
+  pts: { key: (d) => d.points, build: (d) => fc(d.points, (r, i) => ({ type: "Feature", properties: { i }, geometry: { type: "Point", coordinates: [r[2], r[1]] } })) },
+  visits: { key: (d) => JSON.stringify(d.visits ?? null), build: (d) => fc(d.visits, (v) => ({ type: "Feature", properties: { id: v.id, active: !!v.active }, geometry: { type: "Point", coordinates: [v.lon, v.lat] } })) },
+  places: { key: (d) => d.places, build: (d) => fc(d.places, (p) => ({ type: "Feature", properties: { id: p.id }, geometry: { type: "Polygon", coordinates: [circle(p.lon, p.lat, p.radius)] } })) },
+  me: {
+    key: (d) => JSON.stringify(d.me ?? null),
+    build: ({ me }) =>
+      me
+        ? fc(["acc", "dot"], (kind) =>
+            kind === "acc"
+              ? { type: "Feature", properties: { kind }, geometry: { type: "Polygon", coordinates: [circle(me.lon, me.lat, Math.max(me.acc ?? 0, 5))] } }
+              : { type: "Feature", properties: { kind }, geometry: { type: "Point", coordinates: [me.lon, me.lat] } })
+        : EMPTY,
+  },
+  hl: { key: (d) => d.highlight?.key ?? null, build: (d) => fc(d.highlight && d.highlight.path.length > 1 ? [d.highlight.path] : [], (s) => ({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: s } })) },
+  head: { key: (d) => JSON.stringify(d.marker ?? null), build: (d) => fc(d.marker ? [d.marker] : [], (m) => ({ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [m.lon, m.lat] } })) },
+};
 
 const layerGroups: Record<keyof LayerToggles, string[]> = {
-  path: ["path-casing", "path"],
+  path: ["path-casing", "path", "hl-casing", "hl"],
   points: ["pts"],
   heatmap: ["heat"],
   visits: ["visits"],
@@ -136,7 +143,7 @@ function addLayers(map: MLMap) {
   const css = getComputedStyle(document.documentElement);
   const primary = css.getPropertyValue("--primary").trim();
   const surface = css.getPropertyValue("--surface").trim();
-  for (const id of ["places", "path", "pts", "visits", "me", "head"]) map.addSource(id, { type: "geojson", data: EMPTY });
+  for (const id of ["places", "path", "hl", "pts", "visits", "me", "head"]) map.addSource(id, { type: "geojson", data: EMPTY });
   map.addLayer({ id: "places-fill", type: "fill", source: "places", paint: { "fill-color": primary, "fill-opacity": 0.1 } });
   map.addLayer({ id: "places-line", type: "line", source: "places", paint: { "line-color": primary, "line-width": 1.5, "line-dasharray": [2, 2] } });
   map.addLayer({
@@ -152,6 +159,8 @@ function addLayers(map: MLMap) {
   });
   map.addLayer({ id: "path-casing", type: "line", source: "path", layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": surface, "line-width": 7, "line-opacity": 0.9 } });
   map.addLayer({ id: "path", type: "line", source: "path", layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": primary, "line-width": 3.5 } });
+  map.addLayer({ id: "hl-casing", type: "line", source: "hl", layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": surface, "line-width": 11 } });
+  map.addLayer({ id: "hl", type: "line", source: "hl", layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": "#f97316", "line-width": 6 } });
   map.addLayer({
     id: "pts",
     type: "circle",
@@ -188,6 +197,7 @@ export default function MapView(props: Props) {
   const mapRef = useRef<MLMap | null>(null);
   const ready = useRef(false);
   const lastFit = useRef<string | undefined>(undefined);
+  const sent = useRef(new Map<string, unknown>()); // last input uploaded per source
   const propsRef = useRef(props);
   propsRef.current = props;
   const [failed, setFailed] = useState(false);
@@ -204,11 +214,18 @@ export default function MapView(props: Props) {
     const map = mapRef.current;
     if (!map || !ready.current) return;
     const p = propsRef.current;
-    for (const [id, data] of Object.entries(collections(p))) (map.getSource(id) as GeoJSONSource | undefined)?.setData(data);
+    for (const [id, s] of Object.entries(sources)) {
+      const k = s.key(p);
+      if (sent.current.has(id) && sent.current.get(id) === k) continue;
+      sent.current.set(id, k);
+      (map.getSource(id) as GeoJSONSource | undefined)?.setData(s.build(p) as never);
+    }
     const l = p.layers ?? defaultLayers;
     for (const [group, ids] of Object.entries(layerGroups)) {
       for (const id of ids) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", l[group as keyof LayerToggles] ? "visible" : "none");
     }
+    // Opened with a target (?place=, ?person=) that was flown to before the style loaded: keep it, skip the first fit.
+    if (p.fit !== undefined && lastFit.current === undefined && p.focus) lastFit.current = p.fit;
     if (p.fit !== undefined && p.fit !== lastFit.current) {
       const b = new LngLatBounds();
       (p.path ?? []).flat().forEach((pt) => b.extend(pt));
@@ -243,6 +260,7 @@ export default function MapView(props: Props) {
     map.addControl(new NavigationControl({ showCompass: false }), "bottom-right");
     map.addControl(new AttributionControl({ compact: true }), "bottom-left");
     map.on("style.load", () => {
+      sent.current.clear(); // a new style starts with empty sources
       addLayers(map);
       ready.current = true;
       setFailed(false);
@@ -270,7 +288,7 @@ export default function MapView(props: Props) {
     };
   }, [!!styleUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { sync(); }, [props.path, props.points, props.visits, props.places, props.me, props.marker, props.fit, layers]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { sync(); }, [props.path, props.points, props.visits, props.places, props.me, props.marker, props.highlight, props.fit, layers]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Family avatars are DOM markers: crisp, clickable, and independent of the map style.
   useEffect(() => {
@@ -304,6 +322,15 @@ export default function MapView(props: Props) {
   useEffect(() => {
     if (props.onMapClick && mapRef.current) mapRef.current.getCanvas().style.cursor = "crosshair";
   }, [props.onMapClick]);
+
+  // Zoom to a newly highlighted stretch.
+  useEffect(() => {
+    const h = props.highlight, map = mapRef.current;
+    if (!h || h.path.length < 2 || !map) return;
+    const b = new LngLatBounds();
+    h.path.forEach((pt) => b.extend(pt));
+    map.fitBounds(b, { padding: props.fitPadding ?? { top: 80, bottom: 80, left: 64, right: 64 }, maxZoom: 16, duration: 600 });
+  }, [props.highlight?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const f = props.focus;

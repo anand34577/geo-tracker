@@ -122,6 +122,8 @@ func (s *Server) Handler() http.Handler {
 	handle("GET /api/v1/me/retention", s.user(s.getRetention))
 	handle("PUT /api/v1/me/retention", s.user(s.putRetention))
 	handle("PUT /api/v1/trips/mode", s.user(s.setTripMode))
+	handle("PATCH /api/v1/visits", s.user(s.patchVisit))
+	handle("GET /api/v1/visits/search", s.user(s.searchVisits))
 	handle("POST /api/v1/points", s.user(s.postPoint))
 	handle("GET /api/v1/admin/audit", s.admin(s.auditLog))
 	handle("GET /api/v1/me/integrations", s.user(s.getIntegrations))
@@ -161,6 +163,7 @@ func (s *Server) Handler() http.Handler {
 	handle("POST /api/v1/devices", s.user(s.createDevice))
 	handle("POST /api/v1/devices/{id}/token", s.user(s.rotateDeviceToken))
 	handle("DELETE /api/v1/devices/{id}", s.user(s.deleteDevice))
+	handle("GET /api/v1/devices/{id}/health", s.user(s.deviceHealth))
 
 	// Import / export
 	handle("GET /api/v1/imports", s.user(s.listImports))

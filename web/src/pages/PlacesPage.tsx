@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
 import { useMutation } from "@tanstack/react-query";
 import { EyeOff, MapPin, MousePointerClick, Pencil, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -17,6 +18,14 @@ export default function PlacesPage() {
   const [draft, setDraft] = useState<PlaceDraft | null>(null);
   const [deleting, setDeleting] = useState<Place | null>(null);
   const [focus, setFocus] = useState<{ lon: number; lat: number; key: number } | null>(null);
+  // Arriving from the command palette (?place=): fly to that place once places are loaded.
+  const [params, setParams] = useSearchParams();
+  useEffect(() => {
+    const p = places.data?.find((x) => x.id === Number(params.get("place")));
+    if (!p) return;
+    setFocus({ lon: p.lon, lat: p.lat, key: Date.now() });
+    setParams({}, { replace: true });
+  }, [places.data, params]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const del = useMutation({
     mutationFn: (p: Place) => api(`/places/${p.id}`, { method: "DELETE" }),

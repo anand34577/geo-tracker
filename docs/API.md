@@ -61,15 +61,15 @@ Other accepted formats (same token rules): `/ingest/owntracks`, `/ingest/overlan
 | Me | `GET/PATCH /me` · `POST /me/password` · `GET/PUT /me/notifications` · `POST /me/notifications/test?channel=email\|gotify` |
 | Config | `GET /config` (version, public URL, available base maps) |
 | Points | `GET /points?from&to&max&raw&user` → `{"total","step","points":[[ts,lat,lon,acc,speed,alt,batt]]}` · `POST /points` (one fix, e.g. "send my location") · `GET /points/latest` · `DELETE /points?from&to` · `GET /stats` |
-| Timeline | `GET /timeline?from&to&user` → `{"visits":[…],"trips":[…]}` · `PUT /trips/mode {start, mode}` (correct a trip) · `POST /timeline/rebuild` |
+| Timeline | `GET /timeline?from&to&user` → `{"visits":[…],"trips":[…]}` · `PUT /trips/mode {start, mode}` (correct a trip) · `PATCH /visits {start, name?, place_id?, hidden?, merge_to?}` (correct a visit; `place_id` 0 = automatic, -1 = none; fields left out keep their value) · `GET /visits/search?q=` (places in your history with first/last visit; accepts questions like "when was I last at the office?") · `POST /timeline/rebuild` |
 | Family | `GET /family` (people + what they share + live position) · `GET/POST /groups` · `PATCH/DELETE /groups/{id}` · `POST /groups/{id}/members {email}` · `PUT /groups/{id}/me` (accept / change own sharing) · `DELETE /groups/{id}/members/{uid}` · `GET/POST /alerts` · `DELETE /alerts/{id}` |
 | Photos | `GET/PUT /me/integrations` (Immich) · `GET /photos?from&to` · `GET /photos/{id}/thumb?size=thumbnail\|preview` |
 | Security | `GET /me/sessions` · `DELETE /me/sessions/{id}` · `GET/PUT /me/retention {days}` · admin: `GET /admin/audit?before=` |
-| Insights | `GET /insights?from&to&tz` · `GET /days?from&to&tz` (points per local day) |
+| Insights | `GET /insights?from&to&tz[&new=1]` (`new=1` adds `new.places/cities/countries`: first-ever visits in the range) · `GET /days?from&to&tz` (points per local day) |
 | Places | `GET/POST /places` · `PUT/DELETE /places/{id}` |
 | Geocoding | `GET /geocode/search?q=` · `GET /geocode/reverse?lat&lon` |
 | Maps | `GET /map/style/{id}` · `GET /map/tiles/{z}/{x}/{y}` (offline MBTiles) |
-| Devices | `GET/POST /devices` · `POST /devices/{id}/token` · `DELETE /devices/{id}` |
+| Devices | `GET/POST /devices` · `POST /devices/{id}/token` · `DELETE /devices/{id}` · `GET /devices/{id}/health?days=` (battery samples and quiet spells with a reason: `battery`, `stationary`, `offline`, `silent`) |
 | Sharing | `GET/POST /shares` · `DELETE /shares/{id}` · public: `GET /public/shares/{token}` |
 | Data | `GET/POST /imports` (multipart `file`) · `DELETE /imports/{id}` (undo) · `GET /export?format=native\|gpx\|geojson\|csv&from&to` (streamed) · background exports: `POST /exports` (`format`, optional `from`/`to`), `GET /exports`, `GET /exports/{id}/download`, `DELETE /exports/{id}` |
 | Admin | `/admin/users…` · `/admin/settings` · `/admin/system` · `/admin/backups…` |

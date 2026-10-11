@@ -82,7 +82,7 @@ function ProfileTab() {
             </Field>
           )}
           <div>
-            <Button variant="primary" type="submit" loading={saveProfile.isPending} disabled={emailChanged && !emailPw}>{t("common.save")}</Button>
+            <Button variant="primary" type="submit" loading={saveProfile.isPending} disabled={!profile.name.trim() || (emailChanged ? !emailPw : profile.name.trim() === user.name)}>{t("common.save")}</Button>
           </div>
         </form>
       </Section>

@@ -510,6 +510,13 @@ type VisitRow struct {
 	Address string `json:"address,omitempty"`
 	City    string `json:"city,omitempty"`
 	Country string `json:"country,omitempty"`
+	// The user's corrections (visit_edits).
+	Edited      bool   `json:"edited,omitempty"`
+	CustomName  string `json:"custom_name,omitempty"`
+	PinnedPlace int64  `json:"pinned_place,omitempty"`
+	NoPlace     bool   `json:"no_place,omitempty"`
+	MergedTo    int64  `json:"merged_to,omitempty"`
+	Hidden      bool   `json:"-"`
 }
 
 type TripRow struct {
@@ -554,6 +561,9 @@ func (s *Store) Timeline(ctx context.Context, userID, from, to int64) ([]VisitRo
 		trips = append(trips, t)
 	}
 	if err := trows.Err(); err != nil {
+		return nil, nil, err
+	}
+	if visits, trips, err = s.applyVisitEdits(ctx, userID, visits, trips); err != nil {
 		return nil, nil, err
 	}
 	return visits, trips, s.applyTripModes(ctx, userID, trips)
@@ -690,21 +700,25 @@ func (s *Store) DeletePlace(ctx context.Context, userID, id int64) error {
 
 // VisitCenters returns every visit's time span and center, for matching visits to places.
 // ponytail: matching happens in Go, not SQL; fine for decades of data (visits are ~10/day).
-func (s *Store) VisitCenters(ctx context.Context, userID int64) ([]timeline.Visit, error) {
-	rows, err := s.R.QueryContext(ctx, `SELECT start_ts, end_ts, lat, lon FROM visits WHERE user_id = ?`, userID)
+func (s *Store) VisitCenters(ctx context.Context, userID int64) ([]VisitRow, error) {
+	rows, err := s.R.QueryContext(ctx, `SELECT start_ts, end_ts, lat, lon FROM visits WHERE user_id = ? ORDER BY start_ts`, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []timeline.Visit
+	var out []VisitRow
 	for rows.Next() {
-		var v timeline.Visit
+		var v VisitRow
 		if err := rows.Scan(&v.Start, &v.End, &v.Lat, &v.Lon); err != nil {
 			return nil, err
 		}
 		out = append(out, v)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out, _, err = s.applyVisitEdits(ctx, userID, out, nil)
+	return out, err
 }
 
 // ── Imports ──────────────────────────────────────────────────
@@ -833,6 +847,8 @@ var DefaultSettings = map[string]string{
 	"oidc_client_secret": "",
 	"oidc_label":         "Single sign-on",
 	"oidc_auto_register": "false", // create accounts for unknown users on first SSO login
+
+	"recap_sent": "", // internal: the last month (yyyy-mm) whose recap went out
 }
 
 // SecretSettings are never sent back to the browser in clear text.
