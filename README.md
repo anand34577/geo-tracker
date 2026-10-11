@@ -17,6 +17,8 @@ A self-hosted, privacy-first **location timeline**, like Google Maps Timeline, r
 
 Phones send locations with apps you may already use: **OwnTracks**, **Overland**, **Colota**, **GPSLogger** or **Traccar Client**. Scan a QR code and you're done.
 
+On Android there is also the native **GeoTracker app** ([download the APK](https://github.com/anand34577/geo-tracker/releases/latest)): it records, shows your timeline, insights and places, and works on its own without a server too. See [android/](android).
+
 ## Screenshots
 
 | Live map and day playback | Timeline: visits and trips |
@@ -35,7 +37,7 @@ Phones send locations with apps you may already use: **OwnTracks**, **Overland**
 
 ```bash
 mkdir -p data && sudo chown 65532:65532 data
-docker run -d --name geotracker -p 8080:8080 -v ./data:/data --restart unless-stopped ghcr.io/anand34577/geotracker:0.4
+docker run -d --name geotracker -p 8080:8080 -v ./data:/data --restart unless-stopped ghcr.io/anand34577/geotracker:0.5
 ```
 
 **Linux / Raspberry Pi** (installs a systemd service):

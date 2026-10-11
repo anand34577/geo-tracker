@@ -197,7 +197,7 @@ func (s *Store) AccessTo(ctx context.Context, viewer, subject int64) (Access, er
 	}
 	defer rows.Close()
 	acc := Access{From: math.MaxInt64, Approx: true}
-	found := false
+	found, exact, anyApprox := false, false, false
 	t := now()
 	for rows.Next() {
 		var live bool
@@ -211,6 +211,11 @@ func (s *Store) AccessTo(ctx context.Context, viewer, subject int64) (Access, er
 			continue // ghost mode hides everything while active
 		}
 		found = true
+		// A membership that grants nothing must not loosen precision for one that does:
+		// approx history in one group + exact nothing in another stays approx.
+		if !live && days == 0 {
+			continue
+		}
 		acc.Live = acc.Live || live
 		switch {
 		case days < 0:
@@ -219,12 +224,17 @@ func (s *Store) AccessTo(ctx context.Context, viewer, subject int64) (Access, er
 			acc.From = min(acc.From, time.UnixMilli(t).AddDate(0, 0, -days).UnixMilli())
 		}
 		if precision == "exact" {
-			acc.Approx = false
+			exact = true
+		} else {
+			anyApprox = true
 		}
 	}
 	if !found {
 		return Access{From: math.MaxInt64}, rows.Err()
 	}
+	// One flag covers live and history, so the stricter choice wins when groups disagree.
+	// ponytail: per-capability precision if people really share differently per group.
+	acc.Approx = anyApprox || !exact
 	return acc, rows.Err()
 }
 

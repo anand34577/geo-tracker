@@ -6,6 +6,7 @@ Your server must be reachable from the phone over **HTTPS** if the phone leaves 
 
 | App | Platforms | Setup |
 |---|---|---|
+| **GeoTracker for Android** | Android 8+ | Download `geotracker-android-*.apk` from the [latest release](https://github.com/anand34577/geo-tracker/releases/latest) and install it. Settings → Server → enter your server address, email and password. No device key needed: the app adds itself under Settings → Devices, and also works fully offline without a server. |
 | **Colota** (recommended on Android) | Android | Scan the QR code (sets endpoint and bearer token), or: Connection → endpoint `https://your.domain/ingest/colota`, format *Custom*, auth *Bearer*. |
 | **OwnTracks** (recommended on iPhone) | Android, iOS | Scan the QR code, or set Mode = HTTP, the URL, username (anything) and password (= device key). |
 | **Overland** | iOS, Android | Scan the QR code, or paste the receiver endpoint. |

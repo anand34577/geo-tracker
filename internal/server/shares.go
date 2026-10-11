@@ -78,6 +78,14 @@ func (s *Server) deleteShare(w http.ResponseWriter, r *http.Request, u *store.Us
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// firstName is safe for blank names (e.g. a whitespace-only name from an identity provider).
+func firstName(name string) string {
+	if f := strings.Fields(name); len(f) > 0 {
+		return f[0]
+	}
+	return ""
+}
+
 // coarsen rounds to 2 decimals (~1.1 km) for "approximate" links.
 func coarsen(v float64) float64 { return math.Round(v*100) / 100 }
 
@@ -120,7 +128,7 @@ func (s *Server) publicShare(w http.ResponseWriter, r *http.Request) {
 		from, to = *sh.From, *sh.To
 	}
 	var rows [][]any
-	total, _ := s.db.CountPoints(r.Context(), sh.UserID, from, to)
+	total, _ := s.db.CountPoints(r.Context(), sh.UserID, from, to, 100)
 	step := max(1, int(math.Ceil(float64(total)/20_000)))
 	i := 0
 	err = s.db.ForEachPoint(r.Context(), sh.UserID, from, to, 100, func(p geo.Point) error {
@@ -137,7 +145,7 @@ func (s *Server) publicShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := map[string]any{
-		"name": sh.Name, "owner": strings.Fields(owner.Name + " ")[0], "kind": sh.Kind, "precision": sh.Precision,
+		"name": sh.Name, "owner": firstName(owner.Name), "kind": sh.Kind, "precision": sh.Precision,
 		"expires_at": sh.ExpiresAt, "from": sh.From, "to": sh.To, "points": rows,
 	}
 	if sh.Kind == "live" {
@@ -152,7 +160,7 @@ func (s *Server) publicShare(w http.ResponseWriter, r *http.Request) {
 				if hidden(v.Lat, v.Lon) {
 					continue
 				}
-				name := v.Name
+				name := cmp(v.CustomName, v.Name) // the owner's correction beats the geocoder
 				lat, lon := v.Lat, v.Lon
 				if approx {
 					name, lat, lon = v.City, coarsen(lat), coarsen(lon)

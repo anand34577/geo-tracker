@@ -151,7 +151,7 @@ func first(v url.Values, keys ...string) string {
 
 func num(v url.Values, keys ...string) *float64 {
 	f, err := strconv.ParseFloat(first(v, keys...), 64)
-	if err != nil || math.IsNaN(f) {
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) { // ±Inf would break JSON encoding later
 		return nil
 	}
 	return &f
