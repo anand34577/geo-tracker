@@ -22,6 +22,11 @@ import app.geotracker.App
 import app.geotracker.PlaceRow
 import app.geotracker.Repo
 import app.geotracker.TrackingService
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -94,7 +99,7 @@ private fun PlaceEditor(initial: PlaceRow, dark: Boolean, others: List<PlaceRow>
     val here = TrackingService.state.collectAsState().value.last ?: App.db.points().latest().collectAsState(null).value?.fix()
     val isNew = initial.lat == 0.0 && initial.lon == 0.0
     var p by remember { mutableStateOf(if (isNew && here != null) initial.copy(lat = here.lat, lon = here.lon) else initial) }
-    var fit by remember { mutableStateOf(if (p.lat != 0.0 || p.lon != 0.0) listOf(LatLng(p.lat, p.lon)) else null) }
+    var fit by remember { mutableStateOf(if (p.lat != 0.0 || p.lon != 0.0) CameraTarget(LatLng(p.lat, p.lon)) else null) }
     var search by remember { mutableStateOf("") }
     var hits by remember { mutableStateOf<List<Triple<String, Double, Double>>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -107,6 +112,15 @@ private fun PlaceEditor(initial: PlaceRow, dark: Boolean, others: List<PlaceRow>
             error = runCatching { block() }.exceptionOrNull()?.message
             busy = false
             if (error == null) close()
+        }
+    }
+
+    fun runSearch() {
+        if (search.trim().length < 3) return
+        scope.launch {
+            error = null
+            hits = withContext(Dispatchers.IO) { runCatching { Api.search(search.trim()) }.onFailure { error = it.message }.getOrDefault(emptyList()) }
+            if (hits.isEmpty() && error == null) error = "No matches. Try a fuller address."
         }
     }
 
@@ -136,32 +150,30 @@ private fun PlaceEditor(initial: PlaceRow, dark: Boolean, others: List<PlaceRow>
                             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f), RoundedCornerShape(50)).padding(horizontal = 12.dp, vertical = 6.dp))
                     if (here != null) Box(Modifier.align(Alignment.TopEnd).padding(12.dp)) {
                         MapButton(Icons.Rounded.MyLocation, "Use my location") {
-                            p = p.copy(lat = here.lat, lon = here.lon); fit = listOf(here.latLng())
+                            p = p.copy(lat = here.lat, lon = here.lon); fit = CameraTarget(here.latLng())
                         }
                     }
                 }
-                Column(Modifier.padding(16.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.padding(16.dp).imePadding().navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (connected) {
                         OutlinedTextField(search, { search = it }, Modifier.fillMaxWidth(), placeholder = { Text("Search an address") },
                             leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true, shape = RoundedCornerShape(14.dp),
+                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = { runSearch() }),
                             trailingIcon = {
-                                if (search.length >= 3) IconButton({
-                                    scope.launch {
-                                        hits = withContext(Dispatchers.IO) { runCatching { Api.search(search) }.onFailure { error = it.message }.getOrDefault(emptyList()) }
-                                    }
-                                }) { Icon(Icons.Rounded.ArrowForward, "Search") }
+                                if (search.trim().length >= 3) IconButton({ runSearch() }) { Icon(Icons.Rounded.ArrowForward, "Search") }
                             })
                         hits.take(4).forEach { (label, lat, lon) ->
                             Text(label, Modifier.fillMaxWidth().clickable {
                                 p = p.copy(lat = lat, lon = lon, name = p.name.ifBlank { label.substringBefore(",") })
-                                fit = listOf(LatLng(lat, lon)); hits = emptyList()
+                                fit = CameraTarget(LatLng(lat, lon)); hits = emptyList()
                             }.padding(vertical = 6.dp), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                     OutlinedTextField(p.name, { p = p.copy(name = it.take(80)) }, Modifier.fillMaxWidth(), label = { Text("Name") }, singleLine = true,
                         shape = RoundedCornerShape(14.dp))
                     Text("Radius · ${p.radius.toInt()} m", style = MaterialTheme.typography.labelLarge)
-                    Slider(p.radius.toFloat(), { p = p.copy(radius = it.toDouble()) }, valueRange = 25f..500f)
+                    Slider(p.radius.toFloat(), { p = p.copy(radius = (it / 5).roundToInt() * 5.0) }, valueRange = 25f..500f)
                     Toggle("Pause recording here", "Nothing is recorded on this phone while you're inside.", p.pause) { p = p.copy(pause = it) }
                     if (connected) Toggle("Privacy zone", "Family and share links never see you here.", p.private) { p = p.copy(private = it) }
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }

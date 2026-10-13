@@ -12,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -22,6 +23,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -40,7 +45,8 @@ fun SettingsScreen() {
     val prefs = App.prefs
     val version by prefs.version.collectAsState()
     version.let { } // recompose on any settings change
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().padding(screenPadding)) {
+    // imePadding: with edge-to-edge the keyboard no longer resizes the window by itself.
+    Column(Modifier.fillMaxSize().statusBarsPadding().imePadding().verticalScroll(rememberScrollState()).padding(screenPadding)) {
         Text("Settings", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(vertical = 8.dp))
         if (prefs.connected) Account() else Connect()
         Recording()
@@ -58,43 +64,60 @@ fun SettingsScreen() {
 private fun Connect() {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    var server by rememberSaveable { mutableStateOf("https://") }
+    val focus = LocalFocusManager.current
+    var server by rememberSaveable { mutableStateOf(App.prefs.server.ifEmpty { "https://" }) }
     var email by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    val insecure = server.startsWith("http://") && !isPrivateHost(server)
+    val normalized = Api.normalizeServer(server)
+    val insecure = normalized != null && normalized.startsWith("http://") && !isPrivateHost(normalized)
+    val ready = !busy && normalized != null && email.isNotBlank() && password.isNotEmpty()
+
+    fun signIn() {
+        val url = normalized ?: return
+        focus.clearFocus()
+        busy = true; error = null
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { Api.login(url, email.trim(), password, "${Build.MANUFACTURER} ${Build.MODEL}".trim().take(60)) }
+            }.onSuccess { r ->
+                App.prefs.server = url
+                App.prefs.token = r.getString("token")
+                App.prefs.deviceId = r.getJSONObject("device").getLong("id")
+                App.prefs.userName = r.getJSONObject("user").optString("name")
+                Sync.schedule(ctx); Sync.now(ctx)
+            }.onFailure { error = it.message ?: "Could not reach the server" }
+            busy = false
+        }
+    }
 
     Section("Server") {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Works fully on this phone. Connect your GeoTracker server to back up, see imports and named places, and share with family.",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedTextField(server, { server = it.trim() }, Modifier.fillMaxWidth(), label = { Text("Server address") }, singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), shape = RoundedCornerShape(14.dp))
+            // Kept exactly as typed: no per-keystroke editing, so the cursor and the "//" are never touched.
+            OutlinedTextField(server, { server = it }, Modifier.fillMaxWidth(), label = { Text("Server address") }, singleLine = true,
+                placeholder = { Text("https://geo.example.com") },
+                supportingText = if (normalized != null && normalized != server.trim()) ({ Text("Will connect to $normalized") }) else null,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false,
+                    keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
+                keyboardActions = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Down) }),
+                shape = RoundedCornerShape(14.dp))
             if (insecure) Text("This address isn't encrypted. Use https:// for a server on the internet.", color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall)
-            OutlinedTextField(email, { email = it.trim() }, Modifier.fillMaxWidth(), label = { Text("Email") }, singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email), shape = RoundedCornerShape(14.dp))
+            OutlinedTextField(email, { email = it }, Modifier.fillMaxWidth(), label = { Text("Email") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false,
+                    keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+                keyboardActions = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Down) }),
+                shape = RoundedCornerShape(14.dp))
             OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("Password") }, singleLine = true,
-                visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { if (ready) signIn() }),
                 shape = RoundedCornerShape(14.dp))
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-            Button({
-                busy = true; error = null
-                scope.launch {
-                    val url = server.trimEnd('/')
-                    runCatching {
-                        withContext(Dispatchers.IO) { Api.login(url, email, password, "${Build.MANUFACTURER} ${Build.MODEL}".trim().take(60)) }
-                    }.onSuccess { r ->
-                        App.prefs.server = url
-                        App.prefs.token = r.getString("token")
-                        App.prefs.deviceId = r.getJSONObject("device").getLong("id")
-                        App.prefs.userName = r.getJSONObject("user").optString("name")
-                        Sync.schedule(ctx); Sync.now(ctx)
-                    }.onFailure { error = it.message ?: "Could not reach the server" }
-                    busy = false
-                }
-            }, Modifier.fillMaxWidth(), enabled = !busy && server.length > 8 && email.isNotBlank() && password.isNotBlank()) {
+            Button({ signIn() }, Modifier.fillMaxWidth(), enabled = ready) {
                 if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Sign in")
             }
         }
@@ -131,7 +154,7 @@ private fun Account() {
     if (confirm) AlertDialog(
         onDismissRequest = { confirm = false },
         title = { Text("Sign out?") },
-        text = { Text("This phone stops uploading and its access token is revoked. Everything recorded stays on this phone and on your server.") },
+        text = { Text("This phone stops uploading and its access token is revoked on the server. If the server can't be reached, remove this phone under Settings → Devices on the web. Everything recorded stays on this phone and on your server.") },
         confirmButton = {
             TextButton({
                 confirm = false
@@ -155,11 +178,11 @@ private fun Recording() {
     fun changed() = TrackingService.restartIfRunning(ctx)
     Section("Recording", Modifier.padding(top = 12.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            SliderSetting("Fix every", "${prefs.interval} s", prefs.interval, 1..120) { prefs.interval = it; changed() }
-            SliderSetting("Minimum movement", if (prefs.minDistance == 0) "off" else "${prefs.minDistance} m", prefs.minDistance, 0..200) { prefs.minDistance = it; changed() }
-            SliderSetting("Accuracy limit", "±${prefs.maxAccuracy} m", prefs.maxAccuracy, 10..200) { prefs.maxAccuracy = it; changed() }
+            SliderSetting("Fix every", prefs.interval, 1..120, 1, { "$it s" }) { prefs.interval = it; changed() }
+            SliderSetting("Minimum movement", prefs.minDistance, 0..200, 5, { if (it == 0) "off" else "$it m" }) { prefs.minDistance = it; changed() }
+            SliderSetting("Accuracy limit", prefs.maxAccuracy, 10..200, 5, { "±$it m" }) { prefs.maxAccuracy = it; changed() }
             Toggle("Save battery when still", "Slows down while you stay in one spot, speeds up as soon as you move.", prefs.adaptive) { prefs.adaptive = it; changed() }
-            if (prefs.adaptive) SliderSetting("Fix every, when still", "${prefs.stillInterval} s", prefs.stillInterval, 30..600) { prefs.stillInterval = it; changed() }
+            if (prefs.adaptive) SliderSetting("Fix every, when still", prefs.stillInterval, 30..600, 10, { "$it s" }) { prefs.stillInterval = it; changed() }
         }
         val pm = ctx.getSystemService(PowerManager::class.java)
         if (!pm.isIgnoringBatteryOptimizations(ctx.packageName)) Link(Icons.Rounded.BatteryAlert, "Allow running in the background",
@@ -297,7 +320,8 @@ private fun Data() {
         title = { Text("Delete all points on this phone?") },
         text = {
             Text(if (queued > 0 && App.prefs.connected) "%,d points have not been uploaded yet and will be lost for good.".format(queued)
-            else "Your server keeps its copy. This can't be undone on the phone.")
+            else if (App.prefs.connected) "Your server keeps its copy and it is downloaded again on the next sync."
+            else "This can't be undone.")
         },
         confirmButton = {
             TextButton({
@@ -309,14 +333,31 @@ private fun Data() {
     )
 }
 
+/**
+ * A whole-number slider that snaps to [step], shows the value live while dragging and saves once
+ * when the finger lifts (saving per tick would restart the recorder dozens of times).
+ */
 @Composable
-private fun SliderSetting(title: String, value: String, current: Int, range: IntRange, set: (Int) -> Unit) {
-    var v by remember(current) { mutableFloatStateOf(current.toFloat()) }
+private fun SliderSetting(title: String, current: Int, range: IntRange, step: Int, show: (Int) -> String, set: (Int) -> Unit) {
+    var dragging by remember { mutableStateOf<Float?>(null) }
+    val value = dragging?.let { snap(it, range, step) } ?: current
     Row {
         Text(title, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-        Text(value, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
+        Text(show(value), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
     }
-    Slider(v, { v = it }, valueRange = range.first.toFloat()..range.last.toFloat(), onValueChangeFinished = { set(v.toInt()) })
+    Slider(
+        value.toFloat(), { dragging = it },
+        valueRange = range.first.toFloat()..range.last.toFloat(),
+        onValueChangeFinished = {
+            dragging?.let { set(snap(it, range, step)) }
+            dragging = null
+        },
+    )
+}
+
+private fun snap(v: Float, range: IntRange, step: Int): Int {
+    val n = Math.round((v - range.first) / step)
+    return (range.first + n * step).coerceIn(range.first, range.last)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

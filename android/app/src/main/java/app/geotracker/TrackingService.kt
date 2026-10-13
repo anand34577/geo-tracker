@@ -63,10 +63,19 @@ class TrackingService : Service(), LocationListener {
         if (intent?.action == ACTION_STOP) {
             stop(this); return START_NOT_STICKY
         }
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            stopSelf(); return START_NOT_STICKY
+        // Reaching here without the permission means it was revoked while we were running. The
+        // foreground call must still be honoured within seconds or Android kills the whole app.
+        val allowed = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val started = runCatching {
+            if (allowed) ServiceCompat.startForeground(this, 1, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+            else startForeground(1, notification())
+        }.isSuccess
+        if (!allowed || !started) {
+            prefs.tracking = false
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
         }
-        ServiceCompat.startForeground(this, 1, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
         state.value = state.value.copy(running = true)
         request()
         return START_STICKY
@@ -75,11 +84,12 @@ class TrackingService : Service(), LocationListener {
     @Suppress("MissingPermission")
     private fun request() {
         lm.removeUpdates(this)
-        val secs = if (moving || !prefs.adaptive) prefs.interval else prefs.stillInterval
-        val ms = secs * 1000L
+        val ms = effectiveInterval() * 1000L
         val providers = lm.getProviders(true)
+        // The distance filter is applied in accept(), not by the provider: a provider-side filter
+        // goes completely silent while you stand still, so the quiet-period heartbeat never ran.
         if (LocationManager.GPS_PROVIDER in providers)
-            lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, ms, prefs.minDistance.toFloat(), this, Looper.getMainLooper())
+            lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, ms, 0f, this, Looper.getMainLooper())
         // Network fixes keep stays alive indoors where GPS can't see the sky.
         if (LocationManager.NETWORK_PROVIDER in providers)
             lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, maxOf(ms, 30_000L), 0f, this, Looper.getMainLooper())
@@ -89,7 +99,7 @@ class TrackingService : Service(), LocationListener {
         val now = l.time
         val isGps = l.provider == LocationManager.GPS_PROVIDER
         if (isGps) lastGpsAt = now
-        else if (now - lastGpsAt < 3L * prefs.interval * 1000) return // GPS is working; ignore coarser fixes
+        else if (now - lastGpsAt < 3L * effectiveInterval() * 1000) return // GPS is working; ignore coarser fixes
 
         val fix = Fix(
             ts = now, lat = l.latitude, lon = l.longitude,
@@ -113,6 +123,9 @@ class TrackingService : Service(), LocationListener {
         if (fix.acc == null || fix.acc <= prefs.maxAccuracy) adapt(fix)
         notify(notification())
     }
+
+    /** Seconds between GPS fixes right now: slower while stationary, when saving battery. */
+    private fun effectiveInterval() = if (moving || !prefs.adaptive) prefs.interval else prefs.stillInterval
 
     private fun accept(f: Fix): Boolean {
         if (f.acc != null && f.acc > prefs.maxAccuracy) return false
@@ -186,9 +199,15 @@ class TrackingService : Service(), LocationListener {
         private const val ACTION_STOP = "stop"
         val state = MutableStateFlow(TrackState())
 
-        fun start(ctx: Context) {
+        /** False (and nothing started) when location permission is missing. */
+        fun start(ctx: Context): Boolean {
+            if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                App.prefs.tracking = false
+                return false
+            }
             App.prefs.tracking = true
             ContextCompat.startForegroundService(ctx, Intent(ctx, TrackingService::class.java))
+            return true
         }
 
         fun stop(ctx: Context) {

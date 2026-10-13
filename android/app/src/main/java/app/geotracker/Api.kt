@@ -3,9 +3,14 @@ package app.geotracker
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.net.ConnectException
 import java.net.HttpURLConnection
+import java.net.MalformedURLException
+import java.net.SocketTimeoutException
 import java.net.URL
 import java.net.URLEncoder
+import java.net.UnknownHostException
+import javax.net.ssl.SSLException
 
 class ApiError(val status: Int, message: String) : IOException(message)
 
@@ -16,7 +21,39 @@ data class Share(val id: Long, val name: String, val kind: String, val precision
 object Api {
     private val prefs get() = App.prefs
 
+    /**
+     * Turns whatever was typed into a base URL: adds https:// when the scheme is missing, repairs
+     * a swallowed slash ("https:/host"), drops spaces and trailing slashes. Null if it can't be a server.
+     */
+    fun normalizeServer(raw: String): String? {
+        var s = raw.filterNot { it.isWhitespace() }
+        if (s.isEmpty()) return null
+        s = s.replace(Regex("^(?i)(https?):/{0,2}(?=[^/])"), "$1://")
+        if (!s.contains("://")) s = "https://$s"
+        s = s.trimEnd('/')
+        val host = runCatching { java.net.URI(s).host }.getOrNull()
+        return if (host.isNullOrEmpty()) null else s
+    }
+
+    private fun friendly(e: IOException): IOException = when (e) {
+        is ApiError -> e
+        is UnknownHostException -> IOException("Can't find that server. Check the address and your connection.", e)
+        is ConnectException -> IOException("The server refused the connection. Check the address and port.", e)
+        is SocketTimeoutException -> IOException("The server took too long to answer.", e)
+        is SSLException -> IOException("Secure connection failed. Check the https:// address and certificate.", e)
+        is MalformedURLException -> IOException("That doesn't look like a server address.", e)
+        else -> e
+    }
+
     fun call(method: String, path: String, body: Any? = null, server: String = prefs.server, token: String = prefs.token): String {
+        try {
+            return request(method, path, body, server, token)
+        } catch (e: IOException) {
+            throw friendly(e)
+        }
+    }
+
+    private fun request(method: String, path: String, body: Any?, server: String, token: String): String {
         val c = URL(server + path).openConnection() as HttpURLConnection
         try {
             c.requestMethod = method
@@ -30,10 +67,18 @@ object Api {
                 c.outputStream.use { it.write(body.toString().toByteArray()) }
             }
             val code = c.responseCode
+            // HttpURLConnection never follows http→https redirects; say so instead of failing on an empty body.
+            if (code in 300..399) {
+                throw ApiError(code, "The server redirected the request. Check the address, usually it should start with https://")
+            }
             val text = (if (code < 400) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText() } ?: ""
             if (code >= 400) {
                 val msg = runCatching { JSONObject(text).getString("title") }.getOrNull()
-                throw ApiError(code, msg ?: if (code == 401) "Signed out: sign in again" else "Server error $code")
+                throw ApiError(code, msg ?: when (code) {
+                    401 -> "Signed out: sign in again"
+                    404 -> "That address isn't a GeoTracker server (404)"
+                    else -> "Server error $code"
+                })
             }
             return text
         } finally {
@@ -49,9 +94,9 @@ object Api {
         return JSONObject(call("POST", "/api/v1/auth/token", body, server, ""))
     }
 
-    fun signOut() {
-        runCatching { if (prefs.deviceId > 0) call("DELETE", "/api/v1/devices/${prefs.deviceId}") }
-    }
+    /** True when the server confirmed that this phone's token was revoked. */
+    fun signOut(): Boolean =
+        prefs.deviceId <= 0 || runCatching { call("DELETE", "/api/v1/devices/${prefs.deviceId}") }.isSuccess
 
     fun upload(points: List<PointRow>): Int {
         val arr = JSONArray()

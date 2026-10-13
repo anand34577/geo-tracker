@@ -2,9 +2,10 @@
 <!-- Self-hosted servers often live on a LAN without TLS; the app warns when a public server uses http. -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true">
+        <!-- User-installed CAs are not trusted: they are how traffic gets intercepted. A server with a
+             private CA needs a certificate from a public one (e.g. Let's Encrypt), or plain http on the LAN. -->
         <trust-anchors>
             <certificates src="system" />
-            <certificates src="user" />
         </trust-anchors>
     </base-config>
 </network-security-config>
