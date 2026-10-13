@@ -110,7 +110,7 @@ func (s *Server) oidcLogin(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name: oidcCookie, Value: base64.RawURLEncoding.EncodeToString(b), Path: "/api/v1/auth/oidc", MaxAge: 600,
 		// Lax is required: the identity provider sends the browser back with a top-level GET.
-		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: isHTTPS(r) || strings.HasPrefix(s.cfg.BaseURL, "https://"),
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: s.isHTTPS(r) || strings.HasPrefix(s.cfg.BaseURL, "https://"),
 	})
 	http.Redirect(w, r, c.cfg.AuthCodeURL(state.State, oidc.Nonce(state.Nonce), oauth2.S256ChallengeOption(state.Verifier)), http.StatusFound)
 }

@@ -26,8 +26,9 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             prefs.syncError = ""
             Result.success()
         } catch (e: ApiError) {
-            prefs.syncError = e.message ?: "Sync failed"
-            if (e.status == 401 || e.status == 403) Result.failure() else Result.retry()
+            val revoked = e.status == 401 || e.status == 403
+            prefs.syncError = if (revoked) "The server no longer accepts this phone. Sign out and sign in again." else e.message ?: "Sync failed"
+            if (revoked) Result.failure() else Result.retry()
         } catch (e: Exception) {
             prefs.syncError = e.message ?: "Server unreachable"
             Result.retry()
@@ -86,7 +87,9 @@ object Sync {
 
     fun now(ctx: Context) {
         WorkManager.getInstance(ctx).enqueueUniqueWork(
-            "now", ExistingWorkPolicy.KEEP,
+            // APPEND_OR_REPLACE: a request made while a run is in flight must run after it. KEEP dropped
+            // it, so fixes that arrived mid-upload waited for the next periodic run.
+            "now", ExistingWorkPolicy.APPEND_OR_REPLACE,
             OneTimeWorkRequestBuilder<SyncWorker>()
                 .setConstraints(constraints())
                 .build(),

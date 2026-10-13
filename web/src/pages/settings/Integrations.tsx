@@ -36,7 +36,7 @@ export default function IntegrationsTab() {
     >
       <form className="grid max-w-lg gap-4" onSubmit={(e) => { e.preventDefault(); save.mutate({ url, api_key: key }); }}>
         {save.error && <Notice tone="danger">{save.error.message}</Notice>}
-        <Field label={t("integrations.immichUrl")}>{(id) => <Input id={id} value={url} placeholder="https://photos.example.com" onChange={(e) => setUrl(e.target.value)} />}</Field>
+        <Field label={t("integrations.immichUrl")}>{(id) => <Input id={id} type="url" value={url} placeholder="https://photos.example.com" onChange={(e) => setUrl(e.target.value)} />}</Field>
         <Field label={t("integrations.apiKey")} hint={connected ? t("integrations.apiKeyKeep") : t("integrations.apiKeyHint")}>
           {(id, d) => <Input id={id} aria-describedby={d} type="password" autoComplete="off" value={key} placeholder={connected ? "••••••••" : ""} onChange={(e) => setKey(e.target.value)} />}
         </Field>

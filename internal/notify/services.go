@@ -23,7 +23,7 @@ func validHTTPURL(raw string) error {
 }
 
 // Do sends one HTTP request through UserHTTP. It fails on transport errors and on HTTP
-// status 400 and above; the response body is only read to put a snippet in the error.
+// status 400 and above.
 func Do(ctx context.Context, method, rawURL string, headers map[string]string, body string) error {
 	if err := validHTTPURL(rawURL); err != nil {
 		return err
@@ -49,12 +49,12 @@ func Do(ctx context.Context, method, rawURL string, headers map[string]string, b
 	req.Header.Set("User-Agent", "GeoTracker")
 	resp, err := UserHTTP.Do(req)
 	if err != nil {
-		return err
+		return Scrub(err)
 	}
 	defer resp.Body.Close()
-	snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 200))
+	// The response body is deliberately not echoed: the target may be an internal service.
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("HTTP %d %s", resp.StatusCode, strings.TrimSpace(string(snippet)))
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	return nil
 }

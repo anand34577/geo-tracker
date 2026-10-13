@@ -81,6 +81,9 @@ func (s *Store) migrate(ctx context.Context) error {
 	if err := s.W.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&cur); err != nil {
 		return err
 	}
+	if latest := latestMigration(); cur > latest {
+		return fmt.Errorf("the database is from a newer GeoTracker (schema %d, this version knows %d); upgrade GeoTracker or restore an older backup", cur, latest)
+	}
 	files, _ := fs.Glob(migrationFS, "migrations/*.sql")
 	sort.Strings(files)
 	backedUp := false
@@ -138,6 +141,18 @@ func snapshot(ctx context.Context, db *sql.DB, dest string) error {
 	return gzipFile(tmp, dest)
 }
 
+// latestMigration is the newest schema version this binary knows.
+func latestMigration() int {
+	files, _ := fs.Glob(migrationFS, "migrations/*.sql")
+	latest := 0
+	for _, f := range files {
+		if v, err := strconv.Atoi(strings.SplitN(path.Base(f), "_", 2)[0]); err == nil && v > latest {
+			latest = v
+		}
+	}
+	return latest
+}
+
 func checkDB(ctx context.Context, p string) error {
 	db, err := sql.Open("sqlite", p)
 	if err != nil {
@@ -154,6 +169,10 @@ func checkDB(ctx context.Context, p string) error {
 	var n int
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE name = 'points'`).Scan(&n); err != nil || n == 0 {
 		return errors.New("not a GeoTracker database")
+	}
+	var v int
+	if err := db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&v); err == nil && v > latestMigration() {
+		return fmt.Errorf("this backup is from a newer GeoTracker (schema %d); upgrade first", v)
 	}
 	return nil
 }

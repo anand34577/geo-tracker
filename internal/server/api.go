@@ -485,7 +485,7 @@ func (s *Server) writeExport(ctx context.Context, w io.Writer, u *store.User, fo
 		}
 		tp := make([]transfer.Place, len(places))
 		for i, p := range places {
-			tp[i] = transfer.Place{Name: p.Name, Icon: p.Icon, Lat: p.Lat, Lon: p.Lon, Radius: p.Radius}
+			tp[i] = transfer.Place{Name: p.Name, Icon: p.Icon, Lat: p.Lat, Lon: p.Lon, Radius: p.Radius, Private: p.Private}
 		}
 		return transfer.WriteNative(w, s.cfg.Version, u.Email, points, tp, anys(visits), anys(trips))
 	}
@@ -675,7 +675,7 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request, _ *store.Us
 	for k, v := range st {
 		out[k] = v
 	}
-	if _, err := s.mbtiles(r, st); err != nil {
+	if _, err := s.mbtiles(st); err != nil {
 		out["map_mbtiles_error"] = err.Error()
 	}
 	writeJSON(w, http.StatusOK, out)

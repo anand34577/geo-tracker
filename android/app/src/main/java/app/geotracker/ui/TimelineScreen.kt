@@ -65,12 +65,12 @@ fun TimelineScreen(dark: Boolean, day: LocalDate, setDay: (LocalDate) -> Unit) {
             is Item.V -> listOf(org.maplibre.android.geometry.LatLng(s.v.lat, s.v.lon))
             is Item.T -> highlight.map { it.latLng() }
             null -> (d?.path?.map { it.latLng() }.orEmpty() + d?.visits?.map { org.maplibre.android.geometry.LatLng(it.lat, it.lon) }.orEmpty())
-        }.ifEmpty { null }
+        }.takeIf { it.isNotEmpty() }?.let { CameraTarget(it) }
     }
 
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxWidth().weight(0.42f)) {
-            GeoMap(MapData(path = d?.path.orEmpty(), highlight = highlight, visits = d?.visits.orEmpty()), Modifier.fillMaxSize(), dark = dark, fit = fit)
+            GeoMap(MapData(path = d?.path.orEmpty(), highlight = highlight, visits = d?.visits.orEmpty()), Modifier.fillMaxSize(), dark = dark, fit = fit, fitTopDp = 96, fitBottomDp = 40)
             DayBar(day, setDay, { picking = true }, Modifier.statusBarsPadding().padding(12.dp))
         }
         Box(Modifier.fillMaxWidth().weight(0.58f).background(MaterialTheme.colorScheme.background)) {
@@ -102,7 +102,10 @@ fun TimelineScreen(dark: Boolean, day: LocalDate, setDay: (LocalDate) -> Unit) {
         val state = rememberDatePickerState(
             initialSelectedDateMillis = day.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
             selectableDates = object : SelectableDates {
-                override fun isSelectableDate(utcTimeMillis: Long) = utcTimeMillis <= System.currentTimeMillis()
+                // The picker speaks UTC midnights; compare calendar dates, not instants, or "today"
+                // is unselectable for part of the day east of UTC (e.g. India after 18:30 UTC).
+                override fun isSelectableDate(utcTimeMillis: Long) =
+                    !java.time.Instant.ofEpochMilli(utcTimeMillis).atZone(ZoneOffset.UTC).toLocalDate().isAfter(LocalDate.now())
             },
         )
         DatePickerDialog(
@@ -263,7 +266,7 @@ private fun ModeSheet(t: Trip, close: () -> Unit, pick: (String) -> Unit) {
 private fun VisitSheet(v: Visit, close: () -> Unit, hide: () -> Unit, run: (suspend () -> Unit) -> Unit) {
     var name by remember { mutableStateOf(v.name.orEmpty()) }
     ModalBottomSheet(close) {
-        Column(Modifier.padding(horizontal = 24.dp).navigationBarsPadding().padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.padding(horizontal = 24.dp).navigationBarsPadding().imePadding().padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Edit visit", style = MaterialTheme.typography.titleLarge)
             Text("${Fmt.dateTime(v.start)} · ${Fmt.dur(v.end - v.start)}", style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -79,14 +79,14 @@ func parsePrefs(raw json.RawMessage) notifyPrefs {
 // ponytail: in memory; after a restart the first fix only re-learns state (no false alerts).
 type notifyState struct {
 	mu          sync.Mutex
-	place       map[int64]int64 // user → current place (0 = none)
+	place       map[int64]map[int64]devState // user → device → place
 	battery     map[int64]int   // device → last battery %
 	silentAlert map[int64]int64 // device → last_seen_at we already warned about
-	rule        map[int64]bool  // family alert rule → subject inside the place
+	rule        map[int64]map[int64]devState // family alert rule → device → inside (at=1)
 }
 
 func newNotifyState() *notifyState {
-	return &notifyState{place: map[int64]int64{}, battery: map[int64]int{}, silentAlert: map[int64]int64{}, rule: map[int64]bool{}}
+	return &notifyState{place: map[int64]map[int64]devState{}, battery: map[int64]int{}, silentAlert: map[int64]int64{}, rule: map[int64]map[int64]devState{}}
 }
 
 func (s *Server) smtpConfig(st map[string]string) notify.SMTP {
@@ -161,7 +161,7 @@ func (s *Server) checkPointEvents(ctx context.Context, userID, deviceID int64, p
 		return
 	}
 	s.publishFamily(ctx, userID)
-	s.checkFamilyAlerts(ctx, u, p)
+	s.checkFamilyAlerts(ctx, u, deviceID, p)
 
 	// Battery crossing below the threshold.
 	if p.Battery != nil && deviceID != 0 { // 0 = browser "send my location", shared by every user
@@ -187,36 +187,63 @@ func (s *Server) checkPointEvents(ctx context.Context, userID, deviceID int64, p
 	for i := range places {
 		byID[places[i].ID] = &places[i]
 	}
+	// State is per device, and a person counts as "at" a place while any device that reported
+	// recently is there, so a second phone or a tablet in the car cannot flap arrive/leave.
+	margin := 25.0
+	if p.Accuracy != nil {
+		margin = math.Max(margin, *p.Accuracy)
+	}
 	s.notes.mu.Lock()
-	prev, known := s.notes.place[userID]
+	devs := s.notes.place[userID]
+	if devs == nil {
+		devs = map[int64]devState{}
+		s.notes.place[userID] = devs
+	}
+	old, known := devs[deviceID]
+	before := occupied(devs, p.TS)
 	cur := int64(0)
-	if pl := byID[prev]; pl != nil {
-		margin := 25.0
-		if p.Accuracy != nil {
-			margin = math.Max(margin, *p.Accuracy)
-		}
-		if geo.Distance(p.Lat, p.Lon, pl.Lat, pl.Lon) <= pl.Radius+margin {
-			cur = prev
-		}
+	if pl := byID[old.at]; pl != nil && geo.Distance(p.Lat, p.Lon, pl.Lat, pl.Lon) <= pl.Radius+margin {
+		cur = old.at
 	}
 	if cur == 0 {
 		if pl := matchPlace(places, p.Lat, p.Lon); pl != nil {
 			cur = pl.ID
 		}
 	}
-	s.notes.place[userID] = cur
+	devs[deviceID] = devState{at: cur, ts: p.TS}
+	after := occupied(devs, p.TS)
 	s.notes.mu.Unlock()
-	if !known || cur == prev {
+	if !known { // first fix since start-up only learns
 		return
 	}
-	if pl := byID[prev]; prev != 0 && pl != nil {
-		s.notifyUser(userID, "place_leave", "Left "+pl.Name, u.Name+" left "+pl.Name+".")
-		s.runAutomations(u, *pl, "leave", p)
+	for id := range before {
+		if pl := byID[id]; pl != nil && !after[id] {
+			s.notifyUser(userID, "place_leave", "Left "+pl.Name, u.Name+" left "+pl.Name+".")
+			s.runAutomations(u, *pl, "leave", p)
+		}
 	}
-	if pl := byID[cur]; pl != nil {
-		s.notifyUser(userID, "place_arrive", "Arrived at "+pl.Name, u.Name+" arrived at "+pl.Name+".")
-		s.runAutomations(u, *pl, "arrive", p)
+	for id := range after {
+		if pl := byID[id]; pl != nil && !before[id] {
+			s.notifyUser(userID, "place_arrive", "Arrived at "+pl.Name, u.Name+" arrived at "+pl.Name+".")
+			s.runAutomations(u, *pl, "arrive", p)
+		}
 	}
+}
+
+// devState is where one device last was: a place id (or 0) at fix time ts.
+type devState struct{ at, ts int64 }
+
+// staleAfter is how long a device that has gone quiet still counts as being where it was.
+const staleAfter = 30 * 60_000
+
+func occupied(devs map[int64]devState, now int64) map[int64]bool {
+	out := map[int64]bool{}
+	for _, d := range devs {
+		if d.at != 0 && now-d.ts <= staleAfter {
+			out[d.at] = true
+		}
+	}
+	return out
 }
 
 // checkSilentDevices warns once when a device stops reporting for the user's chosen time.
@@ -307,6 +334,10 @@ func (s *Server) putNotify(w http.ResponseWriter, r *http.Request, u *store.User
 		to, ok := cleanEmail(p.Email.To)
 		if !ok {
 			fail(w, http.StatusBadRequest, "enter a valid email address")
+			return
+		}
+		if u.Role != "admin" && to != u.Email {
+			fail(w, http.StatusBadRequest, "you can only send notifications to your own account address")
 			return
 		}
 		p.Email.To = to

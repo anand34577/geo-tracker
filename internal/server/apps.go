@@ -49,7 +49,7 @@ func (s *Server) appLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	email, _ := cleanEmail(req.Email)
-	if !s.logins.allow("ip:"+s.clientIP(r), 20, 15*time.Minute) || !s.logins.allow("email:"+email, 10, 15*time.Minute) {
+	if !s.loginAllowed(r, email) {
 		fail(w, http.StatusTooManyRequests, "too many attempts, try again in 15 minutes")
 		return
 	}

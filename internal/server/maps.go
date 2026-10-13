@@ -29,7 +29,7 @@ func (s *Server) basemaps(r *http.Request, st map[string]string) []basemap {
 		{ID: "osm", Name: "OpenStreetMap", Light: base + "osm", Dark: base + "osm"},
 		{ID: "topo", Name: "OpenTopoMap (terrain)", Light: base + "topo", Dark: base + "topo"},
 	}
-	if mb, err := s.mbtiles(r, st); err == nil && mb != nil {
+	if mb, err := s.mbtiles(st); err == nil && mb != nil {
 		name := mb.Name
 		if name == "" {
 			name = "Offline map"
@@ -50,7 +50,7 @@ func (s *Server) Close() {
 }
 
 // mbtiles returns the configured offline map, reopening it when the setting changes.
-func (s *Server) mbtiles(r *http.Request, st map[string]string) (*maps.MBTiles, error) {
+func (s *Server) mbtiles(st map[string]string) (*maps.MBTiles, error) {
 	path := st["map_mbtiles"]
 	s.mapMu.Lock()
 	defer s.mapMu.Unlock()
@@ -87,7 +87,7 @@ func (s *Server) mapStyle(w http.ResponseWriter, r *http.Request, _ *store.User)
 		style = maps.RasterStyle("OpenTopoMap", []string{"https://a.tile.opentopomap.org/{z}/{x}/{y}.png", "https://b.tile.opentopomap.org/{z}/{x}/{y}.png", "https://c.tile.opentopomap.org/{z}/{x}/{y}.png"},
 			`© OpenStreetMap contributors, SRTM · style © <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)`, 17)
 	case "offline":
-		mb, err := s.mbtiles(r, st)
+		mb, err := s.mbtiles(st)
 		if err != nil || mb == nil {
 			fail(w, http.StatusNotFound, "no offline map configured")
 			return
@@ -107,7 +107,7 @@ func (s *Server) mapTile(w http.ResponseWriter, r *http.Request, _ *store.User) 
 		internal(w, r, err)
 		return
 	}
-	mb, err := s.mbtiles(r, st)
+	mb, err := s.mbtiles(st)
 	if err != nil || mb == nil {
 		fail(w, http.StatusNotFound, "no offline map configured")
 		return

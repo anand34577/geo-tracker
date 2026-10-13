@@ -7,6 +7,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -59,17 +60,31 @@ data class MapData(
     val pickRadius: Double = 0.0,
 )
 
+/**
+ * A request to move the camera. It has identity equality on purpose: asking for the same spot
+ * twice (My location, pan away, My location again) must move the camera twice, and a list or a
+ * LatLng would compare equal and be ignored.
+ */
+class CameraTarget(val points: List<LatLng>) {
+    constructor(point: LatLng) : this(listOf(point))
+}
+
 @Composable
 fun GeoMap(
     data: MapData,
     modifier: Modifier = Modifier,
     dark: Boolean,
-    fit: List<LatLng>? = null,      // fit the camera to these whenever the list changes
-    follow: LatLng? = null,          // or keep this point centred
+    fit: CameraTarget? = null,       // fit the camera to these points each time a new target is given
+    follow: CameraTarget? = null,    // or centre on its first point
+    fitTopDp: Int = 88,              // keep fitted content clear of floating cards
+    fitBottomDp: Int = 56,
     onClick: ((LatLng) -> Unit)? = null,
     onMap: (MapLibreMap) -> Unit = {},
 ) {
     val ctx = LocalContext.current
+    val density = ctx.resources.displayMetrics.density
+    val currentOnClick by rememberUpdatedState(onClick)
+    val currentOnMap by rememberUpdatedState(onMap)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val view = remember { MapView(ctx).apply { onCreate(null) } }
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
@@ -99,18 +114,20 @@ fun GeoMap(
     LaunchedEffect(dark) {
         style = null
         view.getMapAsync { m ->
+            if (map == null) { // once per map: a style change must not stack another click listener
+                m.uiSettings.isAttributionEnabled = true
+                m.uiSettings.isLogoEnabled = false
+                m.uiSettings.isCompassEnabled = true
+                m.uiSettings.setCompassMargins(0, (fitTopDp * density).toInt(), (12 * density).toInt(), 0)
+                m.uiSettings.isRotateGesturesEnabled = true
+                m.addOnMapClickListener { ll -> currentOnClick?.invoke(ll); currentOnClick != null }
+                currentOnMap(m)
+            }
             map = m
-            m.uiSettings.isAttributionEnabled = true
-            m.uiSettings.isLogoEnabled = false
-            m.uiSettings.isCompassEnabled = true
-            m.uiSettings.setCompassMargins(0, 220, 32, 0)
-            m.uiSettings.isRotateGesturesEnabled = true
-            m.addOnMapClickListener { onClick?.invoke(it); onClick != null }
             m.setStyle(Style.Builder().fromUri(styleUrl(dark))) { s ->
                 addLayers(s, primary, accent, dark)
                 style = s
             }
-            onMap(m)
         }
     }
 
@@ -118,14 +135,19 @@ fun GeoMap(
 
     LaunchedEffect(map, fit) {
         val m = map ?: return@LaunchedEffect
-        val pts = fit?.takeIf { it.isNotEmpty() } ?: return@LaunchedEffect
+        val pts = fit?.points?.takeIf { it.isNotEmpty() } ?: return@LaunchedEffect
         if (pts.size == 1 || pts.all { it == pts[0] }) m.animateCamera(CameraUpdateFactory.newLatLngZoom(pts[0], 15.0), 600)
-        else m.animateCamera(CameraUpdateFactory.newLatLngBounds(LatLngBounds.Builder().includes(pts).build(), 120, 260, 120, 160), 600)
+        else {
+            val side = (40 * density).toInt()
+            val top = (fitTopDp * density).toInt()
+            val bottom = (fitBottomDp * density).toInt()
+            m.animateCamera(CameraUpdateFactory.newLatLngBounds(LatLngBounds.Builder().includes(pts).build(), side, top, side, bottom), 600)
+        }
     }
 
     LaunchedEffect(map, follow) {
         val m = map ?: return@LaunchedEffect
-        follow?.let { m.animateCamera(CameraUpdateFactory.newLatLngZoom(it, maxOf(m.cameraPosition.zoom, 15.0)), 600) }
+        follow?.points?.firstOrNull()?.let { m.animateCamera(CameraUpdateFactory.newLatLngZoom(it, maxOf(m.cameraPosition.zoom, 15.0)), 600) }
     }
 
     AndroidView({ view }, modifier)

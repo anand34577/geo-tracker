@@ -120,7 +120,7 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, r *http.Request, value 
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: value, Path: "/", Expires: exp,
 		HttpOnly: true, SameSite: http.SameSiteLaxMode,
-		Secure: isHTTPS(r) || strings.HasPrefix(s.cfg.BaseURL, "https://"),
+		Secure: s.isHTTPS(r) || strings.HasPrefix(s.cfg.BaseURL, "https://"),
 	})
 }
 
@@ -231,13 +231,23 @@ func (s *Server) postSetup(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, u)
 }
 
+// loginAllowed rate-limits password attempts. The tight per-email limit is scoped to the caller's
+// address, so a stranger cannot lock the real owner out; a loose global per-email cap still
+// slows a distributed guess.
+func (s *Server) loginAllowed(r *http.Request, email string) bool {
+	ip := s.clientIP(r)
+	return s.logins.allow("ip:"+ip, 20, 15*time.Minute) &&
+		s.logins.allow("pair:"+ip+"|"+email, 10, 15*time.Minute) &&
+		s.logins.allow("email:"+email, 100, 15*time.Minute)
+}
+
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	var req accountReq
 	if !decode(w, r, &req) {
 		return
 	}
 	email, _ := cleanEmail(req.Email)
-	if !s.logins.allow("ip:"+s.clientIP(r), 20, 15*time.Minute) || !s.logins.allow("email:"+email, 10, 15*time.Minute) {
+	if !s.loginAllowed(r, email) {
 		fail(w, http.StatusTooManyRequests, "too many attempts, try again in 15 minutes")
 		return
 	}
@@ -325,7 +335,8 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, u *store
 	if !decode(w, r, &req) {
 		return
 	}
-	if !checkPassword(u.PasswordHash, req.Current) {
+	// SSO-only accounts have no password yet; being signed in is enough to set a first one.
+	if u.PasswordHash != "!" && !checkPassword(u.PasswordHash, req.Current) {
 		fail(w, http.StatusBadRequest, "current password is wrong")
 		return
 	}

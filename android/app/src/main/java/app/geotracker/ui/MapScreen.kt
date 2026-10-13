@@ -55,8 +55,8 @@ fun MapScreen(dark: Boolean, openDay: (LocalDate) -> Unit) {
     var today by remember { mutableStateOf<List<Fix>>(emptyList()) }
     var todayDist by remember { mutableDoubleStateOf(0.0) }
     var people by remember { mutableStateOf<List<Person>>(emptyList()) }
-    var follow by remember { mutableStateOf<LatLng?>(null) }
-    var fit by remember { mutableStateOf<List<LatLng>?>(null) }
+    var follow by remember { mutableStateOf<CameraTarget?>(null) }
+    var fit by remember { mutableStateOf<CameraTarget?>(null) }
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
     var showPeople by remember { mutableStateOf(false) }
     var download by remember { mutableStateOf(false) }
@@ -67,7 +67,7 @@ fun MapScreen(dark: Boolean, openDay: (LocalDate) -> Unit) {
         val pts = withContext(Dispatchers.IO) { App.db.points().range(from, to).map { it.fix() } }
         today = pts
         todayDist = TimelineBuilder().apply { pts.forEach(::add); finish() }.trips.sumOf { it.distance }
-        if (fit == null) latest?.let { fit = listOf(it.fix().latLng()) } // first open: zoom to where we are
+        if (fit == null) latest?.let { fit = CameraTarget(it.fix().latLng()) } // first open: zoom to where we are
     }
     // Family members' live positions, refreshed while the map is open.
     LaunchedEffect(connected) {
@@ -81,7 +81,7 @@ fun MapScreen(dark: Boolean, openDay: (LocalDate) -> Unit) {
     Box(Modifier.fillMaxSize()) {
         GeoMap(
             MapData(path = today, places = places, people = people, me = me),
-            Modifier.fillMaxSize(), dark = dark, fit = fit, follow = follow, onMap = { map = it },
+            Modifier.fillMaxSize(), dark = dark, fit = fit, follow = follow, fitTopDp = 230, fitBottomDp = 130, onMap = { map = it },
         )
 
         // Status card
@@ -91,8 +91,8 @@ fun MapScreen(dark: Boolean, openDay: (LocalDate) -> Unit) {
 
         // Map controls
         Column(Modifier.align(Alignment.CenterEnd).padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            MapButton(Icons.Rounded.MyLocation, "My location") { me?.let { follow = null; follow = it.latLng() } }
-            MapButton(Icons.Rounded.Route, "Fit today") { fit = today.map { it.latLng() }.ifEmpty { null } }
+            MapButton(Icons.Rounded.MyLocation, "My location") { me?.let { follow = CameraTarget(it.latLng()) } }
+            MapButton(Icons.Rounded.Route, "Fit today") { today.map { it.latLng() }.takeIf { it.isNotEmpty() }?.let { fit = CameraTarget(it) } }
             MapButton(Icons.Rounded.DownloadForOffline, "Download area for offline") { download = true }
             if (connected && people.isNotEmpty()) MapButton(Icons.Rounded.Groups, "People") { showPeople = true }
         }
@@ -118,7 +118,7 @@ fun MapScreen(dark: Boolean, openDay: (LocalDate) -> Unit) {
                             Text(p.name.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Bold)
                         }
                     },
-                    modifier = Modifier.clickable(enabled = p.point != null) { showPeople = false; follow = null; follow = p.point!!.latLng() },
+                    modifier = Modifier.clickable(enabled = p.point != null) { showPeople = false; follow = CameraTarget(p.point!!.latLng()) },
                 )
             }
         }
@@ -230,10 +230,13 @@ private fun TrackButton(running: Boolean, modifier: Modifier) {
     val ctx = LocalContext.current
     var askBackground by remember { mutableStateOf(false) }
     val background = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    var denied by remember { mutableStateOf(false) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
-        if (res[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
-            TrackingService.start(ctx)
+        // Fine location can be missing when only "approximate" was chosen; recording needs precise.
+        if (granted(ctx, Manifest.permission.ACCESS_FINE_LOCATION) && TrackingService.start(ctx)) {
             if (!granted(ctx, Manifest.permission.ACCESS_BACKGROUND_LOCATION)) askBackground = true
+        } else {
+            denied = true
         }
     }
     ExtendedFloatingActionButton(
@@ -250,6 +253,20 @@ private fun TrackButton(running: Boolean, modifier: Modifier) {
         contentColor = if (running) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onPrimary,
         shape = RoundedCornerShape(28.dp),
         modifier = modifier,
+    )
+    if (denied) AlertDialog(
+        onDismissRequest = { denied = false },
+        icon = { Icon(Icons.Rounded.LocationOff, null) },
+        title = { Text("Precise location needed") },
+        text = { Text("GeoTracker can't record without precise location. Open the app's permissions and allow \"Precise\" location.") },
+        confirmButton = {
+            TextButton({
+                denied = false
+                ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    android.net.Uri.parse("package:${ctx.packageName}")))
+            }) { Text("Open settings") }
+        },
+        dismissButton = { TextButton({ denied = false }) { Text("Not now") } },
     )
     if (askBackground) AlertDialog(
         onDismissRequest = { askBackground = false },

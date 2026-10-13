@@ -12,6 +12,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -34,6 +36,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -64,10 +67,13 @@ class MainActivity : ComponentActivity() {
             val version by App.prefs.version.collectAsState()
             val system = isSystemInDarkTheme()
             val dark = when (App.prefs.theme.also { version }) { "light" -> false; "dark" -> true; else -> system }
-            enableEdgeToEdge(
-                statusBarStyle = if (dark) SystemBarStyle.dark(0) else SystemBarStyle.light(0, 0),
-                navigationBarStyle = if (dark) SystemBarStyle.dark(0) else SystemBarStyle.light(0, 0),
-            )
+            // Re-applied only when the theme flips, not on every recomposition.
+            SideEffect {
+                enableEdgeToEdge(
+                    statusBarStyle = if (dark) SystemBarStyle.dark(0) else SystemBarStyle.light(0, 0),
+                    navigationBarStyle = if (dark) SystemBarStyle.dark(0) else SystemBarStyle.light(0, 0),
+                )
+            }
             var tab by rememberSaveable { mutableStateOf(Tab.Map) }
             var day by rememberSaveable { mutableStateOf(LocalDate.now().toString()) }
             BackHandler(tab != Tab.Map) { tab = Tab.Map }
@@ -92,7 +98,10 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                 ) { pad ->
-                    Box(Modifier.fillMaxSize().padding(bottom = pad.calculateBottomPadding())) {
+                    // Consume the bar's inset so a screen's imePadding() only adds what the keyboard
+                    // covers beyond the bottom bar, instead of stacking on top of it.
+                    val bottom = pad.calculateBottomPadding()
+                    Box(Modifier.fillMaxSize().padding(bottom = bottom).consumeWindowInsets(PaddingValues(bottom = bottom))) {
                         AnimatedContent(tab, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "tab") { t ->
                             val openDay: (LocalDate) -> Unit = { day = it.toString(); tab = Tab.Timeline }
                             when (t) {

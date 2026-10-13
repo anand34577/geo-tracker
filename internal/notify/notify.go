@@ -11,6 +11,8 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/url"
+	"sync/atomic"
 	"net/smtp"
 	"strings"
 	"syscall"
@@ -20,13 +22,37 @@ import (
 // UserHTTP is the client for URLs that users type in (Gotify, Immich). Their servers are
 // usually on the LAN, so private addresses stay allowed, but link-local ones are refused:
 // that range holds cloud metadata services (169.254.169.254) that leak credentials.
+//
+// BlockPrivate additionally refuses loopback and private-range targets. Turn it on (GT_BLOCK_PRIVATE_TARGETS)
+// for multi-user servers, where any account could otherwise probe the host's own network.
+var BlockPrivate atomic.Bool
+
+// blocked reports whether a dial target is off limits.
+func blocked(ip net.IP) bool {
+	if ip == nil || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() ||
+		ip.Equal(net.IPv4(100, 100, 100, 200)) { // Alibaba Cloud metadata, inside the CGNAT range
+		return true
+	}
+	return BlockPrivate.Load() && (ip.IsLoopback() || ip.IsPrivate())
+}
+
+// Scrub removes the request URL from transport errors: URLs carry secrets (Telegram bot tokens,
+// Discord and Slack webhook paths) and errors end up in logs and in the UI.
+func Scrub(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return fmt.Errorf("%s request failed: %w", strings.ToLower(ue.Op), ue.Err)
+	}
+	return err
+}
+
 var UserHTTP = &http.Client{
 	Timeout: 20 * time.Second,
 	Transport: &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{Timeout: 10 * time.Second, Control: func(_, address string, _ syscall.RawConn) error {
 			host, _, _ := net.SplitHostPort(address)
-			if ip := net.ParseIP(host); ip == nil || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
+			if ip := net.ParseIP(host); blocked(ip) {
 				return fmt.Errorf("address %s is not allowed", host)
 			}
 			return nil
@@ -116,7 +142,7 @@ func SendGotify(ctx context.Context, server, token, title, message string, prior
 	req.Header.Set("X-Gotify-Key", token)
 	resp, err := UserHTTP.Do(req)
 	if err != nil {
-		return err
+		return Scrub(err)
 	}
 	resp.Body.Close()
 	if resp.StatusCode >= 300 {

@@ -81,7 +81,7 @@ func (s *Server) putIntegrations(w http.ResponseWriter, r *http.Request, u *stor
 		}
 		resp, err := immichDo(r.Context(), c, http.MethodGet, "/api/users/me", nil)
 		if err != nil {
-			fail(w, http.StatusBadGateway, "could not reach Immich: "+err.Error())
+			fail(w, http.StatusBadGateway, "could not reach Immich: "+notify.Scrub(err).Error())
 			return
 		}
 		resp.Body.Close()
@@ -192,11 +192,14 @@ func (s *Server) photoThumb(w http.ResponseWriter, r *http.Request, u *store.Use
 		return
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		w.WriteHeader(resp.StatusCode)
+	// Never relay the upstream's status (a 401 from Immich would look like our own session ending)
+	// or a non-image type from a server the user typed in.
+	ct := resp.Header.Get("Content-Type")
+	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(ct, "image/") {
+		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Cache-Control", "private, max-age=86400")
 	io.Copy(w, resp.Body)
 }

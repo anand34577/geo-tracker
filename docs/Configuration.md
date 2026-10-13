@@ -9,7 +9,8 @@ Environment variables only cover what's needed to **start** the server. Everythi
 | `GT_BASE_URL` | derived from the request | Public URL, e.g. `https://track.example.com`. Used for phone setup links, secure cookies and share links. **Set it in production.** |
 | `GT_DATA_DIR` | `./data` (`/data` in Docker) | Database, backups and uploads. |
 | `GT_LISTEN` | `:8080` | Listen address, e.g. `127.0.0.1:8080` to accept only a local reverse proxy. |
-| `GT_TRUSTED_PROXIES` | — | Comma-separated CIDRs whose `X-Forwarded-For` header is trusted, e.g. `172.16.0.0/12`. Without it, every client looks like the proxy. |
+| `GT_TRUSTED_PROXIES` | — | Comma-separated CIDRs whose `X-Forwarded-For` header is trusted, e.g. `172.16.0.0/12`. Without it, every client looks like the proxy and shares one rate-limit bucket; `X-Forwarded-Proto` is also only believed from these addresses. The Linux installer sets `127.0.0.1/32`. |
+| `GT_BLOCK_PRIVATE_TARGETS` | `false` | `true` forbids webhooks, ntfy, Gotify and Immich from reaching loopback and private-network addresses. Recommended when several people share the server. Link-local (cloud metadata) addresses are always refused. |
 | `GT_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. |
 | `GT_LOG_FORMAT` | `text` | `text` or `json`. Coordinates and query strings are never logged. |
 | `GT_ADMIN_EMAIL`, `GT_ADMIN_PASSWORD` | — | Create the first admin without the setup wizard (automation). The password needs at least 10 characters. Remove them after the first start. |
