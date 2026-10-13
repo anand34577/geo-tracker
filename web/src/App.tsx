@@ -112,7 +112,9 @@ function Shell() {
   }, []);
 
   return (
-    <div className="flex h-dvh">
+    // viewport-fit=cover lets the page run under the status bar and display cutouts; the safe-area
+    // padding keeps headers, search and the tab bar out of them (no-op where there are no insets).
+    <div className="flex h-dvh pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
       <CommandPalette open={palette} onClose={() => setPalette(false)} />
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-4 focus:z-50 focus:rounded-lg focus:bg-surface focus:px-3 focus:py-2">
         {t("nav.skip")}
@@ -219,17 +221,20 @@ function MobileNav({ onSearch }: { onSearch: () => void }) {
   const tabClass = (active: boolean) => cn("flex flex-col items-center justify-center gap-1 text-[11px] font-medium", active ? "text-primary" : "text-muted");
   const sheetLink = "flex h-11 items-center gap-3 rounded-lg px-3 text-sm hover:bg-surface-2";
   return (
-    <nav aria-label={t("nav.main")} className="z-20 grid h-16 shrink-0 grid-cols-5 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] md:hidden">
-      {tabs.map((n) => (
-        <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => tabClass(isActive)}>
-          <n.icon className="size-5" aria-hidden />
-          {t(n.key)}
-        </NavLink>
-      ))}
-      <button ref={moreBtn} onClick={() => setMore(!more)} aria-expanded={more} className={tabClass(moreActive || more)}>
-        <Menu className="size-5" aria-hidden />
-        {t("nav.more")}
-      </button>
+    // The safe-area inset pads outside the 4rem row: inside a fixed h-16 it squeezed the icons and clipped their tops.
+    <nav aria-label={t("nav.main")} className="z-20 shrink-0 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] md:hidden">
+      <div className="grid h-16 grid-cols-5">
+        {tabs.map((n) => (
+          <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => tabClass(isActive)}>
+            <n.icon className="size-5" aria-hidden />
+            {t(n.key)}
+          </NavLink>
+        ))}
+        <button ref={moreBtn} onClick={() => setMore(!more)} aria-expanded={more} className={tabClass(moreActive || more)}>
+          <Menu className="size-5" aria-hidden />
+          {t("nav.more")}
+        </button>
+      </div>
       <Popover anchor={moreBtn} open={more} onClose={() => setMore(false)} align="end" className="w-64 p-1.5">
         <div className="border-b border-border px-3 pt-2 pb-3">
           <p className="truncate font-medium">{user.name}</p>

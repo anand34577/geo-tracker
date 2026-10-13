@@ -392,7 +392,7 @@ function InstanceSettings() {
 
       <Section title={t("admin.sso")} description={t("admin.ssoDesc")} actions={<Switch label={t("admin.ssoEnable")} checked={flag("oidc_enabled")} onChange={(v) => setForm({ ...form, oidc_enabled: String(v) })} />}>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label={t("admin.ssoIssuer")} hint={t("admin.ssoIssuerHint")}>{(id, d) => <Input id={id} aria-describedby={d} value={form.oidc_issuer} placeholder="https://auth.example.com" onChange={set("oidc_issuer")} />}</Field>
+          <Field label={t("admin.ssoIssuer")} hint={t("admin.ssoIssuerHint")}>{(id, d) => <Input id={id} aria-describedby={d} type="url" value={form.oidc_issuer} placeholder="https://auth.example.com" onChange={set("oidc_issuer")} />}</Field>
           <Field label={t("admin.ssoLabel")}>{(id) => <Input id={id} value={form.oidc_label} onChange={set("oidc_label")} />}</Field>
           <Field label={t("admin.ssoClientId")}>{(id) => <Input id={id} value={form.oidc_client_id} autoComplete="off" onChange={set("oidc_client_id")} />}</Field>
           <Field label={t("admin.ssoClientSecret")}>{(id) => <Input id={id} type="password" value={form.oidc_client_secret} autoComplete="new-password" onChange={set("oidc_client_secret")} />}</Field>

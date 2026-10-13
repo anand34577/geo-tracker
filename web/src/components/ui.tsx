@@ -78,6 +78,11 @@ const control =
 
 export function Input({ className, type, ...rest }: InputHTMLAttributes<HTMLInputElement>) {
   const [shown, setShown] = useState(false);
+  // Addresses are typed, not written: phone keyboards must not autocorrect, capitalise or "smart-punctuate"
+  // the "//" in https://. type=url also makes some browsers validate/normalise the value, so use a text
+  // input with the URL keyboard instead.
+  if (type === "url")
+    return <input type="text" inputMode="url" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="off" className={cn(control, className)} {...rest} />;
   if (type !== "password") return <input type={type} className={cn(control, className)} {...rest} />;
   // Secrets get a reveal toggle: typos in a password or API token are otherwise invisible.
   return (
