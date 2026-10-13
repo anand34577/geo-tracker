@@ -107,6 +107,10 @@ func (s *Server) inviteMember(w http.ResponseWriter, r *http.Request, u *store.U
 	if !decode(w, r, &req) {
 		return
 	}
+	if !s.logins.allow("invite:"+strconv.FormatInt(u.ID, 10), 20, time.Hour) {
+		fail(w, http.StatusTooManyRequests, "too many invitations, try again later")
+		return
+	}
 	email, _ := cleanEmail(req.Email)
 	target, err := s.db.UserByEmail(r.Context(), email)
 	if errors.Is(err, store.ErrNotFound) || (err == nil && target.Disabled) {
@@ -234,7 +238,8 @@ func (s *Server) family(w http.ResponseWriter, r *http.Request, u *store.User) {
 				fp.Point = maskPoint(*p, acc.Approx)
 				// Where they are now: their latest visit if it is still going on.
 				if vs, _, err := s.db.Timeline(r.Context(), m.UserID, now-6*3_600_000, now); err == nil && len(vs) > 0 {
-					if v := vs[len(vs)-1]; p.TS-v.End < 15*60_000 {
+					// A visit inside a privacy zone must not be named just because they left it minutes ago.
+					if v := vs[len(vs)-1]; p.TS-v.End < 15*60_000 && matchPlace(zones, v.Lat, v.Lon) == nil {
 						fp.Place = v.Name
 						if acc.Approx {
 							fp.Place = v.City
@@ -357,7 +362,7 @@ func (s *Server) deleteAlert(w http.ResponseWriter, r *http.Request, u *store.Us
 }
 
 // checkFamilyAlerts evaluates watchers' arrive/leave rules for a subject's new fix.
-func (s *Server) checkFamilyAlerts(ctx context.Context, subject *store.User, p geo.Point) {
+func (s *Server) checkFamilyAlerts(ctx context.Context, subject *store.User, deviceID int64, p geo.Point) {
 	rules, err := s.db.AlertsBySubject(ctx, subject.ID)
 	if err != nil || len(rules) == 0 {
 		return
@@ -380,10 +385,21 @@ func (s *Server) checkFamilyAlerts(ctx context.Context, subject *store.User, p g
 			continue
 		}
 		d := geo.Distance(p.Lat, p.Lon, pl.Lat, pl.Lon)
+		// State is kept per device: a person is "at" a place while any recently seen device is.
 		s.notes.mu.Lock()
-		was, known := s.notes.rule[rule.ID]
-		inside := d <= pl.Radius || (was && d <= pl.Radius+margin)
-		s.notes.rule[rule.ID] = inside
+		devs := s.notes.rule[rule.ID]
+		if devs == nil {
+			devs = map[int64]devState{}
+			s.notes.rule[rule.ID] = devs
+		}
+		old, known := devs[deviceID]
+		was := len(occupied(devs, p.TS)) > 0
+		in := int64(0)
+		if d <= pl.Radius || (old.at == 1 && d <= pl.Radius+margin) {
+			in = 1
+		}
+		devs[deviceID] = devState{at: in, ts: p.TS}
+		inside := len(occupied(devs, p.TS)) > 0
 		s.notes.mu.Unlock()
 		if !known || inside == was {
 			continue

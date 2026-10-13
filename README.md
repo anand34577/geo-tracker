@@ -11,7 +11,7 @@ A self-hosted, privacy-first **location timeline**, like Google Maps Timeline, r
 - **Geofencing automations:** when you arrive at or leave a place, tell family, call a webhook (Home Assistant, n8n, IFTTT) or message ntfy, Telegram, Discord or Slack.
 - **Family & sharing:** family groups with arrival alerts, and expiring share links (live or a trip, exact or approximate).
 - **Insights:** distance, time moving, places and countries over any period.
-- **Safe by default:** daily automatic backups, a backup before every upgrade, one-click restore.
+- **Safe by default:** daily automatic backups, a backup before every upgrade, one-click restore. Place names come from OpenStreetMap Nominatim unless you switch the geocoder to your own server or Off (see [Configuration](https://github.com/anand34577/geo-tracker/wiki/Configuration)).
 - **More:** single sign-on (OIDC), email and Gotify notifications, Immich photos on your timeline, offline maps, installable as an app.
 - **Lightweight:** one process, one data folder, SQLite. No Redis, no separate database. Runs on a Raspberry Pi.
 

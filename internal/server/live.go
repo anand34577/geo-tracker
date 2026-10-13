@@ -18,9 +18,17 @@ type Hub struct {
 
 func NewHub() *Hub { return &Hub{subs: map[int64]map[chan []byte]struct{}{}} }
 
+// maxStreams caps open streams per user so one account cannot hold unbounded connections.
+const maxStreams = 10
+
+// Subscribe returns nil when the user already has maxStreams streams open.
 func (h *Hub) Subscribe(userID int64) (chan []byte, func()) {
 	ch := make(chan []byte, 16)
 	h.mu.Lock()
+	if len(h.subs[userID]) >= maxStreams {
+		h.mu.Unlock()
+		return nil, func() {}
+	}
 	if h.subs[userID] == nil {
 		h.subs[userID] = map[chan []byte]struct{}{}
 	}
@@ -42,7 +50,7 @@ func (h *Hub) Publish(userID int64, event string, data any) {
 	if err != nil {
 		return
 	}
-	msg := []byte(fmt.Sprintf("event: %s\ndata: %s\n\n", event, b))
+	msg := fmt.Appendf(nil, "event: %s\ndata: %s\n\n", event, b)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for ch := range h.subs[userID] {
@@ -61,6 +69,10 @@ func (s *Server) live(w http.ResponseWriter, r *http.Request, u *store.User) {
 	w.Header().Set("X-Accel-Buffering", "no") // tell nginx not to buffer
 	ch, cancel := s.hub.Subscribe(u.ID)
 	defer cancel()
+	if ch == nil {
+		fail(w, http.StatusTooManyRequests, "too many open live connections")
+		return
+	}
 	ping := time.NewTicker(25 * time.Second)
 	defer ping.Stop()
 	fmt.Fprint(w, "retry: 5000\n\n")
@@ -72,6 +84,15 @@ func (s *Server) live(w http.ResponseWriter, r *http.Request, u *store.User) {
 		case msg := <-ch:
 			w.Write(msg)
 		case <-ping.C:
+			// A revoked session or disabled account must not keep receiving events.
+			if cur, err := s.db.UserByID(r.Context(), u.ID); err != nil || cur.Disabled {
+				return
+			}
+			if c, err := r.Cookie(sessionCookie); err == nil {
+				if _, _, err := s.db.SessionUser(r.Context(), hashToken(c.Value)); err != nil {
+					return
+				}
+			}
 			fmt.Fprint(w, ": ping\n\n") // keeps proxies from closing idle streams
 		}
 		if rc.Flush() != nil {

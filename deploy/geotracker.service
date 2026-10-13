@@ -13,6 +13,7 @@ Group=geotracker
 Environment=GT_DATA_DIR=/var/lib/geotracker
 Environment=GT_LISTEN=127.0.0.1:8080
 Environment=GT_BASE_URL=https://track.example.com
+Environment=GT_TRUSTED_PROXIES=127.0.0.1/32
 ExecStart=/usr/local/bin/geotracker serve
 Restart=always
 RestartSec=2

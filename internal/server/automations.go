@@ -361,6 +361,9 @@ func (s *Server) validateActions(ctx context.Context, u *store.User, actions []a
 			if !ok {
 				return "enter a valid email address for the email action"
 			}
+			if u.Role != "admin" && to != u.Email {
+				return "automations can only email your own account address"
+			}
 			a.To = to
 		case "notify_family":
 			a.Members = slices.DeleteFunc(slices.Compact(slices.Sorted(slices.Values(a.Members))), func(id int64) bool {

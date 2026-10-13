@@ -86,6 +86,11 @@ func (s *Server) rebuild(ctx context.Context, userID, dirtyFrom int64) error {
 	if err != nil {
 		return err
 	}
+	// Never replace history older than the oldest raw point: retention deletes points but keeps
+	// the visits derived from them, and a rebuild cannot recreate those.
+	if st, err := s.db.PointStats(ctx, userID); err == nil && st.First != nil && start < *st.First {
+		start = *st.First
+	}
 	b := timeline.New(timeline.Default)
 	err = s.db.ForEachPoint(ctx, userID, start, math.MaxInt64, 0, func(p geo.Point) error {
 		b.Add(p)
@@ -173,7 +178,9 @@ func (s *Server) importLoop(ctx context.Context) {
 
 func (s *Server) runImport(ctx context.Context, imp *store.Import) {
 	imp.Status = "running"
+	imp.Rejected = 0 // a resumed import counts them again
 	s.db.UpdateImport(ctx, imp)
+	existing, _ := s.db.Places(ctx, imp.UserID)
 	start := time.Now()
 	batch := make([]geo.Point, 0, 5000)
 	total := 0
@@ -202,7 +209,24 @@ func (s *Server) runImport(ctx context.Context, imp *store.Import) {
 			return nil
 		},
 		Place: func(p transfer.Place) error {
-			return s.db.CreatePlace(ctx, imp.UserID, &store.Place{Name: p.Name, Icon: p.Icon, Lat: p.Lat, Lon: p.Lon, Radius: p.Radius})
+			// Re-importing an archive (or resuming an interrupted import) must not duplicate places.
+			for _, e := range existing {
+				if e.Name == p.Name && geo.Distance(e.Lat, e.Lon, p.Lat, p.Lon) < 5 {
+					return nil
+				}
+			}
+			np := &store.Place{Name: p.Name, Icon: p.Icon, Lat: p.Lat, Lon: p.Lon, Radius: p.Radius, Private: p.Private}
+			if np.Icon == "" {
+				np.Icon = "map-pin"
+			}
+			if np.Radius < 10 || np.Radius > 5000 {
+				np.Radius = 75
+			}
+			if err := s.db.CreatePlace(ctx, imp.UserID, np); err != nil {
+				return err
+			}
+			existing = append(existing, *np)
+			return nil
 		},
 	})
 	if err == nil {
@@ -242,6 +266,7 @@ func (s *Server) maintenanceLoop(ctx context.Context) {
 			slog.Info("retention removed old points", "points", n)
 		}
 		s.db.PruneAudit(ctx)
+		s.db.PurgeSessions(ctx)
 		s.cleanExports(ctx)
 	}
 	housekeeping()
@@ -273,7 +298,7 @@ func (s *Server) scheduledBackup(ctx context.Context) error {
 	}
 	hour, _ := strconv.Atoi(st["backup_hour"])
 	now := time.Now()
-	if hour < 0 || now.Hour() != hour {
+	if hour < 0 || now.Hour() < hour { // later in the day counts too: a server that was off at 03:00 catches up
 		return nil
 	}
 	prefix := "geotracker-" + now.Format("20060102")
@@ -289,7 +314,6 @@ func (s *Server) scheduledBackup(ctx context.Context) error {
 	}
 	keep, _ := strconv.Atoi(st["backup_keep"])
 	s.db.Rotate(max(1, keep))
-	s.db.PurgeSessions(ctx)
 	slog.Info("scheduled backup written", "file", name)
 	return nil
 }

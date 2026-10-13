@@ -35,6 +35,12 @@ func (s *Server) ingest(kind string) http.HandlerFunc {
 		// Authenticate before parsing so unknown callers can't make us chew through 10 MB.
 		// Traccar JSON carries its token in the body, so it is checked after parsing.
 		token := ingestToken(r)
+		// Only Traccar's JSON body carries its token inside the payload; every other caller
+		// without one is turned away before a byte of body is read.
+		if token == "" && !(kind == "osmand" && strings.Contains(r.Header.Get("Content-Type"), "json")) {
+			fail(w, http.StatusUnauthorized, "unknown device token")
+			return
+		}
 		lookup := func() (userID, deviceID int64, ok bool) {
 			uid, did, scopes, err := s.db.TokenLookup(r.Context(), hashToken(token))
 			if errors.Is(err, store.ErrNotFound) || (err == nil && !strings.Contains(scopes, "ingest")) {

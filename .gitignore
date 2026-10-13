@@ -10,6 +10,9 @@ web/node_modules/
 web/dist/
 
 .env
+
+# local launcher scripts
+/Claude-Account-*.cmd
 .DS_Store
 
 web/tsconfig.tsbuildinfo

@@ -205,7 +205,9 @@ func (s *Server) Handler() http.Handler {
 	// Stdlib CSRF defence (Go 1.25+): rejects cross-origin browser writes via
 	// Sec-Fetch-Site/Origin; phone apps send neither header and pass through.
 	h := http.NewCrossOriginProtection().Handler(mux)
-	return securityHeaders(logRequests(h))
+	return securityHeaders(func(r *http.Request) bool {
+		return s.isHTTPS(r) || strings.HasPrefix(s.cfg.BaseURL, "https://")
+	}, logRequests(h))
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -258,23 +260,35 @@ func timeRange(r *http.Request) (from, to int64, ok bool) {
 	return from, to, from <= to
 }
 
-func (s *Server) clientIP(r *http.Request) string {
+// fromTrustedProxy reports whether the direct peer is one of GT_TRUSTED_PROXIES.
+func (s *Server) fromTrustedProxy(r *http.Request) bool {
 	host, _, _ := net.SplitHostPort(r.RemoteAddr)
-	if ip, err := netip.ParseAddr(host); err == nil {
-		for _, p := range s.cfg.TrustedProxies {
-			if p.Contains(ip) {
-				if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-					parts := strings.Split(xff, ",")
-					return strings.TrimSpace(parts[len(parts)-1])
-				}
-			}
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	for _, p := range s.cfg.TrustedProxies {
+		if p.Contains(ip) {
+			return true
 		}
 	}
+	return false
+}
+
+func (s *Server) clientIP(r *http.Request) string {
+	if s.fromTrustedProxy(r) {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			parts := strings.Split(xff, ",")
+			return strings.TrimSpace(parts[len(parts)-1])
+		}
+	}
+	host, _, _ := net.SplitHostPort(r.RemoteAddr)
 	return host
 }
 
-func isHTTPS(r *http.Request) bool {
-	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+// isHTTPS trusts X-Forwarded-Proto only from a trusted proxy: any client can send that header.
+func (s *Server) isHTTPS(r *http.Request) bool {
+	return r.TLS != nil || (s.fromTrustedProxy(r) && r.Header.Get("X-Forwarded-Proto") == "https")
 }
 
 // baseURL is the configured public URL, or a best guess from the request.
@@ -283,7 +297,7 @@ func (s *Server) baseURL(r *http.Request) string {
 		return strings.TrimRight(s.cfg.BaseURL, "/")
 	}
 	scheme := "http"
-	if isHTTPS(r) {
+	if s.isHTTPS(r) {
 		scheme = "https"
 	}
 	return scheme + "://" + r.Host
@@ -318,7 +332,7 @@ func logRequests(next http.Handler) http.Handler {
 	})
 }
 
-func securityHeaders(next http.Handler) http.Handler {
+func securityHeaders(isHTTPS func(*http.Request) bool, next http.Handler) http.Handler {
 	csp := strings.Join([]string{
 		"default-src 'self'",
 		"script-src 'self'",

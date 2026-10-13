@@ -42,7 +42,9 @@ if [ ! -f "$ENVFILE" ]; then
 GT_DATA_DIR=${GT_DATA_DIR:-/var/lib/geotracker}
 GT_LISTEN=${GT_LISTEN:-127.0.0.1:8080}
 GT_BASE_URL=${GT_BASE_URL:-}
-# GT_TRUSTED_PROXIES=127.0.0.1/32
+# The reverse proxy on this machine; lets rate limits and the audit log see real client addresses.
+GT_TRUSTED_PROXIES=${GT_TRUSTED_PROXIES:-127.0.0.1/32}
+# GT_BLOCK_PRIVATE_TARGETS=true   # multi-user servers: forbid webhooks to loopback/LAN addresses
 # TZ=Europe/Berlin
 EOF
   chmod 640 "$ENVFILE"; chown root:geotracker "$ENVFILE"

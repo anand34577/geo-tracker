@@ -27,6 +27,8 @@ type Place struct {
 	Lat    float64 `json:"lat"`
 	Lon    float64 `json:"lon"`
 	Radius float64 `json:"radius"`
+	// Private is a privacy zone; it must survive a round trip or a restore would expose it.
+	Private bool `json:"private,omitempty"`
 }
 
 // Sink receives imported data. Place may be nil when the caller ignores places.

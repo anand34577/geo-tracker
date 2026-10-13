@@ -16,6 +16,7 @@ import (
 	"time"
 	_ "time/tzdata" // TZ works even in minimal container images
 
+	"geotracker/internal/notify"
 	"geotracker/internal/server"
 	"geotracker/internal/store"
 	"geotracker/web"
@@ -39,6 +40,7 @@ Environment:
   GT_LOG_LEVEL         debug | info | warn | error (default info)
   GT_LOG_FORMAT        text | json (default text)
   GT_TRUSTED_PROXIES   comma-separated CIDRs allowed to set X-Forwarded-For
+  GT_BLOCK_PRIVATE_TARGETS  true: webhooks, ntfy, Gotify and Immich may not reach loopback/LAN addresses
   GT_ADMIN_EMAIL, GT_ADMIN_PASSWORD   create the first admin without the setup wizard
 `
 
@@ -134,6 +136,7 @@ func serve(ctx context.Context, dataDir string) error {
 			proxies = append(proxies, p)
 		}
 	}
+	notify.BlockPrivate.Store(os.Getenv("GT_BLOCK_PRIVATE_TARGETS") == "true")
 	baseURL := strings.TrimRight(os.Getenv("GT_BASE_URL"), "/")
 	srv := server.New(server.Config{DataDir: dataDir, BaseURL: baseURL, Version: version, TrustedProxies: proxies, Web: web.Dist()}, db)
 	defer srv.Close()
