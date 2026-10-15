@@ -83,8 +83,18 @@ type oidcState struct {
 	State, Nonce, Verifier, Next string
 }
 
+// safeNext keeps the post-login redirect on this site. Browsers strip tabs and newlines and treat
+// a backslash as "/", so a tab between two slashes would otherwise become "//evil.com".
 func safeNext(next string) string {
-	if !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") || strings.HasPrefix(next, "/\\") {
+	if !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") || len(next) > 2048 {
+		return "/"
+	}
+	for _, c := range next {
+		if c < 0x20 || c == 0x7f || c == '\\' {
+			return "/"
+		}
+	}
+	if u, err := url.Parse(next); err != nil || u.Host != "" || u.Scheme != "" {
 		return "/"
 	}
 	return next

@@ -28,7 +28,7 @@ const (
 
 // ── Passwords (argon2id, OWASP minimum parameters) ───────────
 
-const argonMem, argonTime, argonThreads = 19 * 1024, 2, 1
+const argonMem, argonTime, argonThreads = 46 * 1024, 1, 1
 
 var b64 = base64.RawStdEncoding
 
@@ -149,8 +149,10 @@ func (l *limiter) allow(key string, max int, window time.Duration) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	cutoff := time.Now().Add(-window)
-	if len(l.hits) > 10_000 {
-		l.hits = map[string][]time.Time{} // crude memory bound under attack
+	if _, known := l.hits[key]; !known && len(l.hits) >= maxLimiterKeys {
+		if l.sweep(cutoff); len(l.hits) >= maxLimiterKeys {
+			return false
+		}
 	}
 	recent := l.hits[key][:0]
 	for _, t := range l.hits[key] {
@@ -164,6 +166,20 @@ func (l *limiter) allow(key string, max int, window time.Duration) bool {
 	}
 	l.hits[key] = append(recent, time.Now())
 	return true
+}
+
+// maxLimiterKeys bounds limiter memory. When the table is full of live keys, new keys are refused
+// instead of evicting old ones: evicting would let an attacker flood junk keys to reset the
+// counters that are limiting them. Refusing only affects callers the limiter has not seen yet.
+const maxLimiterKeys = 10_000
+
+// sweep drops keys with no hit inside the window.
+func (l *limiter) sweep(cutoff time.Time) {
+	for k, ts := range l.hits {
+		if len(ts) == 0 || !ts[len(ts)-1].After(cutoff) {
+			delete(l.hits, k)
+		}
+	}
 }
 
 // ── Validation ───────────────────────────────────────────────
