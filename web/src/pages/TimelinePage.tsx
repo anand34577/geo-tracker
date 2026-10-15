@@ -9,8 +9,9 @@ import {
 import { useTranslation } from "react-i18next";
 import { api, queryClient, useUser, type PointStats, type Trip, type TripMode, type Visit } from "../lib/api";
 import { dayBounds, dayKey, distance, duration, longDate, modeLabel, speed, time } from "../lib/format";
-import { summarize, toSegments, tripStats, useFamily, useMonthDays, usePlaces, usePoints, useTimeline, type TripStats } from "../lib/data";
+import { summarize, tripStats, useFamily, useMonthDays, usePlaces, usePoints, useTimeline, type TripStats } from "../lib/data";
 import { usePrefs } from "../lib/prefs";
+import { filterRows, pathSegments, useViz } from "../lib/viz";
 import MapView from "../components/MapView";
 import { DatePicker, Popover, RangePicker, Select, type Range } from "../components/controls";
 import { PlaceDialog, PlaceIcon, type PlaceDraft } from "../components/places";
@@ -110,12 +111,19 @@ export default function TimelinePage() {
     return out;
   }, [timeline.data, from]);
 
-  const path = useMemo(() => toSegments(points.data?.points ?? []), [points.data]);
+  const allRows = useMemo(() => points.data?.points ?? [], [points.data]);
+  const [viz, setViz] = useViz();
+  const flt = useMemo(() => filterRows(allRows, viz), [allRows, viz]);
+  const path = useMemo(() => pathSegments(flt), [flt]);
+  const [hoverTrip, setHoverTrip] = useState<number | null>(null);
   const sum = summarize(timeline.data);
 
   const rows = points.data?.points;
   const trip = timeline.data?.trips.find((x) => x.id === activeTrip);
   const stats = useMemo(() => (trip && rows ? tripStats(rows, trip.start, trip.end) : null), [trip, rows]);
+  // Hovering a trip in the list previews it on the map without moving the camera.
+  const hoverT = hoverTrip != null && hoverTrip !== activeTrip ? timeline.data?.trips.find((x) => x.id === hoverTrip) : undefined;
+  const hoverPath = useMemo(() => (hoverT && rows ? tripStats(rows, hoverT.start, hoverT.end).path : null), [hoverT, rows]);
   const toggleTrip = (id: number) => {
     setActive(null);
     setActiveTrip((cur) => (cur === id ? null : id));
@@ -229,7 +237,7 @@ export default function TimelinePage() {
                         onDelete={() => editVisit(e.v, { hidden: true }, t("timeline.deleted"))} />
                     ) : (
                       <TripItem key={`t${e.t.id}`} trip={e.t} units={units} clock={clock} editable={!viewUser}
-                        open={activeTrip === e.t.id} onToggle={() => toggleTrip(e.t.id)} stats={activeTrip === e.t.id ? stats : null} />
+                        open={activeTrip === e.t.id} onToggle={() => toggleTrip(e.t.id)} onHover={(on) => setHoverTrip(on ? e.t.id : null)} stats={activeTrip === e.t.id ? stats : null} />
                     ),
                   )}
                 </ol>
@@ -244,7 +252,11 @@ export default function TimelinePage() {
         label={t("timeline.mapLabel")}
         path={path}
         visits={timeline.data?.visits.map((v) => ({ id: v.id, lon: v.lon, lat: v.lat, active: v.id === active }))}
-        highlight={stats && trip ? { path: stats.path, key: `trip${trip.id}` } : null}
+        points={flt.rows}
+        flt={flt}
+        viz={viz}
+        onVizChange={setViz}
+        highlight={stats && trip ? { path: stats.path, key: `trip${trip.id}` } : hoverPath && hoverT ? { path: hoverPath, key: `hover${hoverT.id}`, fly: false } : null}
         fit={loading ? undefined : `${from}-${to}`}
         focus={focus}
         pin={located && { lon: located.lon!, lat: located.lat!, image: photoUrl(located.id), label: t("photos.pinLabel", { time: time(located.ts, clock) }), key: located.key }}
@@ -409,13 +421,14 @@ function VisitDialog({ visit, onClose, onNewPlace }: { visit: Visit | null; onCl
   );
 }
 
-function TripItem({ trip, units, clock, editable, open, onToggle, stats }: {
+function TripItem({ trip, units, clock, editable, open, onToggle, onHover, stats }: {
   trip: Trip;
   units: "metric" | "imperial";
   clock: "24h" | "12h";
   editable: boolean;
   open: boolean;
   onToggle: () => void;
+  onHover?: (on: boolean) => void;
   stats: TripStats | null;
 }) {
   const { t } = useTranslation();
@@ -427,7 +440,11 @@ function TripItem({ trip, units, clock, editable, open, onToggle, stats }: {
     onSuccess: () => ["timeline", "insights"].forEach((k) => queryClient.invalidateQueries({ queryKey: [k] })),
   });
   return (
-    <li className={cn("rounded-xl transition-colors", open && "my-1 bg-surface-2/60 ring-1 ring-border")}>
+    <li
+      className={cn("rounded-xl transition-colors", open && "my-1 bg-surface-2/60 ring-1 ring-border")}
+      onMouseEnter={() => onHover?.(true)}
+      onMouseLeave={() => onHover?.(false)}
+    >
       <div className="flex items-center gap-3 py-1.5 pr-2 pl-[1.6rem] text-sm text-muted">
         <span className={cn("flex h-8 w-px self-stretch border-l-2 border-dashed", open ? "border-highlight" : "border-border-strong")} aria-hidden />
         <span className={cn("ml-2 grid size-7 shrink-0 place-items-center rounded-lg", open ? "bg-highlight text-white" : "bg-surface-2")}><Icon className="size-4" aria-hidden /></span>

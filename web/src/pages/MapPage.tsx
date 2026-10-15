@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { BatteryMedium, CalendarDays, Clock3, Copy, Crosshair, Gauge, LocateFixed, Mountain, Radio, Smartphone, Upload, X } from "lucide-react";
+import { BatteryMedium, CalendarDays, ChevronDown, Clock3, Copy, Crosshair, Gauge, LocateFixed, MapPin, Mountain, Navigation, Radio, Smartphone, Upload, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { api, rowToPoint, type FamilyPerson, type PointRow, type PointStats } from "../lib/api";
+import { api, rowToPoint, type FamilyPerson, type PointRow, type PointStats, type Visit } from "../lib/api";
 import { ago, dateTime, dayKey, distance, duration, speed } from "../lib/format";
-import { summarize, toSegments, useFamily, useLatest, useMonthDays, usePlaces, usePoints, useTimeline } from "../lib/data";
+import { summarize, useFamily, useLatest, useMonthDays, usePlaces, usePoints, useTimeline } from "../lib/data";
 import { usePrefs } from "../lib/prefs";
+import { filterRows, pathSegments, useViz } from "../lib/viz";
 import MapView, { defaultLayers, type LayerToggles, type MapPerson } from "../components/MapView";
 import { RangePicker, presetRange, type Range } from "../components/controls";
 import { Playback } from "../components/Playback";
+import { Insights } from "../components/VizPanel";
 import { AddressSearch } from "../components/AddressSearch";
 import { Avatar, Button, Skeleton, cn, useToast } from "../components/ui";
 
@@ -46,6 +48,16 @@ export default function MapPage() {
   const [focus, setFocus] = useState<{ lon: number; lat: number; zoom?: number; key: number } | null>(null);
   const [head, setHead] = useState<{ lon: number; lat: number } | null>(null);
   const [picked, setPicked] = useState<PointRow | null>(null);
+  const [viz, setViz] = useViz();
+  const [visitId, setVisitId] = useState<number | null>(null);
+  const [follow, setFollow] = useState(false);
+  const [details, setDetails] = useState(false);
+  // "5 min ago" and the Live badge keep up without waiting for the next fix.
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => tick((n) => n + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
   const family = useFamily();
   const [params, setParams] = useSearchParams();
   const [personId, setPersonId] = useState<number | null>(() => Number(params.get("person")) || null);
@@ -66,12 +78,14 @@ export default function MapPage() {
     const p = family.data?.find((x) => x.user_id === id);
     setPersonId(id);
     setPicked(null);
+    setVisitId(null);
     if (p?.point) setFocus({ lon: p.point.lon, lat: p.point.lat, zoom: 15, key: Date.now() });
   };
   const sendLocation = useSendLocation();
 
-  const rows = points.data?.points ?? [];
-  const path = useMemo(() => toSegments(rows), [rows]);
+  const rows = useMemo(() => points.data?.points ?? [], [points.data]);
+  const flt = useMemo(() => filterRows(rows, viz), [rows, viz]);
+  const path = useMemo(() => pathSegments(flt), [flt]);
   const isToday = range.preset === "today";
   const me = isToday && latest.data ? { lon: latest.data.lon, lat: latest.data.lat, acc: latest.data.acc } : null;
   const sum = summarize(timeline.data);
@@ -81,6 +95,12 @@ export default function MapPage() {
   // A fix hours old says nothing about moving: say so instead of "On the move", and point at the phone setup.
   const silentMs = latest.data ? Date.now() - latest.data.ts : 0;
   const p = picked ? rowToPoint(picked) : null;
+  const visit = timeline.data?.visits.find((v) => v.id === visitId) ?? null;
+  const fresh = !!latest.data && Date.now() - latest.data.ts < 5 * 60_000;
+  // Following the live position: each new fix recentres the map.
+  useEffect(() => {
+    if (follow && isToday && latest.data) setFocus({ lon: latest.data.lon, lat: latest.data.lat, key: Date.now() });
+  }, [follow, isToday, latest.data?.ts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="absolute inset-0">
@@ -88,16 +108,20 @@ export default function MapPage() {
         className="h-full"
         label={t("map.label")}
         path={path}
-        points={rows}
-        visits={timeline.data?.visits.map((v) => ({ id: v.id, lon: v.lon, lat: v.lat }))}
+        points={flt.rows}
+        flt={flt}
+        viz={viz}
+        onVizChange={setViz}
+        onVisitClick={(id) => { setVisitId(id); setPicked(null); setPersonId(null); }}
+        visits={timeline.data?.visits.map((v) => ({ id: v.id, lon: v.lon, lat: v.lat, active: v.id === visitId }))}
         places={places.data}
         me={me}
-        marker={head}
+        marker={head ?? (p ? { lon: p.lon, lat: p.lat } : null)}
         people={people}
         onPersonClick={selectPerson}
         layers={layers}
         onLayersChange={setLayers}
-        onPointClick={setPicked}
+        onPointClick={(r) => { setPicked(r); setVisitId(null); setPersonId(null); }}
         fit={points.isSuccess ? `${range.from}-${range.to}` : undefined}
         // Keep fitted content out from under the floating panels (left column on md+, top bar and bottom card on phones).
         fitPadding={window.innerWidth >= 768 ? { top: 80, bottom: 120, left: 400, right: 80 } : { top: 130, bottom: 340, left: 40, right: 40 }}
@@ -113,10 +137,10 @@ export default function MapPage() {
       {/* Phones: playback stacks above the card in one column; md+: `contents` lets each float on its own. */}
       <div className="absolute inset-x-3 bottom-3 z-10 flex flex-col gap-2 md:contents">
         {/* Playback */}
-        {rows.length > 1 && (
+        {flt.rows.length > 1 && (
           <div className="md:absolute md:top-[6.75rem] md:left-3 md:z-10 md:w-[22rem] lg:top-auto lg:right-16 lg:bottom-6 lg:left-[24rem] lg:w-auto">
             <div className="mx-auto max-w-xl">
-              <Playback points={rows} clock={clock} onPosition={setHead} />
+              <Playback points={flt.rows} clock={clock} onPosition={setHead} />
             </div>
           </div>
         )}
@@ -124,6 +148,8 @@ export default function MapPage() {
         <aside className="md:absolute md:bottom-6 md:left-3 md:z-10 md:w-[22rem]">
           {person ? (
             <PersonCard person={person} clock={clock} onClose={() => setPersonId(null)} />
+          ) : visit ? (
+            <VisitCard v={visit} clock={clock} onClose={() => setVisitId(null)} />
           ) : p ? (
             <PointCard p={p} units={units} clock={clock} onClose={() => setPicked(null)} onCopy={() => navigator.clipboard.writeText(`${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}`).then(() => toast("success", t("common.copied")))} />
           ) : (
@@ -153,7 +179,15 @@ export default function MapPage() {
                   {isToday && (
                     <div className="mb-4 flex items-start justify-between gap-3 border-b border-border pb-4">
                       <div className="min-w-0">
-                        <p className="text-xs font-semibold tracking-wide text-subtle uppercase">{t("map.lastSeen")}</p>
+                        <p className="flex items-center gap-2 text-xs font-semibold tracking-wide text-subtle uppercase">
+                          {t("map.lastSeen")}
+                          {fresh && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-1.5 py-0.5 text-[10px] text-success">
+                              <span className="size-1.5 animate-pulse rounded-full bg-success" aria-hidden />
+                              {t("map.viz.live")}
+                            </span>
+                          )}
+                        </p>
                         <h2 className="mt-0.5 truncate font-semibold">{atVisit ? currentVisit.place_name || currentVisit.name || t("timeline.unknownPlace") : silentMs > 60 * 60_000 ? t("map.noRecent") : t("map.onTheMove")}</h2>
                         {latest.data && (
                           <p className="flex flex-wrap gap-x-3 text-sm text-muted">
@@ -169,9 +203,14 @@ export default function MapPage() {
                         )}
                       </div>
                       {me && (
-                        <Button variant="ghost" size="icon" onClick={() => setFocus({ ...me, key: Date.now() })} aria-label={t("map.center")} title={t("map.center")}>
-                          <Crosshair className="size-5" />
-                        </Button>
+                        <div className="flex shrink-0">
+                          <Button variant={follow ? "primary" : "ghost"} size="icon" aria-pressed={follow} onClick={() => setFollow(!follow)} aria-label={t("map.viz.follow")} title={t("map.viz.follow")}>
+                            <Navigation className="size-5" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => setFocus({ ...me, key: Date.now() })} aria-label={t("map.center")} title={t("map.center")}>
+                            <Crosshair className="size-5" />
+                          </Button>
+                        </div>
                       )}
                     </div>
                   )}
@@ -180,6 +219,19 @@ export default function MapPage() {
                     <Stat label={t("summary.places")} value={String(sum.places)} />
                     <Stat label={t("summary.moving")} value={duration(sum.moving)} />
                   </dl>
+                  {flt.rows.length > 1 && (
+                    <>
+                      <button
+                        onClick={() => setDetails(!details)}
+                        aria-expanded={details}
+                        className="mt-3 flex w-full items-center justify-center gap-1 rounded-lg py-1.5 text-sm font-medium text-primary hover:bg-primary-subtle"
+                      >
+                        {details ? t("map.viz.lessDetails") : t("map.viz.details")}
+                        <ChevronDown className={cn("size-4 transition-transform", details && "rotate-180")} aria-hidden />
+                      </button>
+                      {details && <div className="mt-3 max-h-[38dvh] overflow-y-auto"><Insights flt={flt} units={units} clock={clock} /></div>}
+                    </>
+                  )}
                   {points.data && points.data.step > 1 && <p className="mt-3 text-center text-xs text-subtle">{t("map.thinned", { total: points.data.total.toLocaleString(), step: points.data.step })}</p>}
                   {people.length > 0 && (
                     <div className="mt-4 flex items-center gap-2 border-t border-border pt-3">
@@ -211,6 +263,32 @@ export default function MapPage() {
           )}
         </aside>
       </div>
+    </div>
+  );
+}
+
+function VisitCard({ v, clock, onClose }: { v: Visit; clock: "24h" | "12h"; onClose: () => void }) {
+  const { t } = useTranslation();
+  const name = v.custom_name || v.place_name || v.name || t("timeline.unknownPlace");
+  const where = [v.address, v.city, v.country].filter(Boolean).join(", ");
+  return (
+    <div className="rounded-2xl border border-border bg-surface/95 p-4 shadow-pop backdrop-blur-sm" role="dialog" aria-label={name}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold tracking-wide text-subtle uppercase">{t("map.viz.visit")}</p>
+          <h2 className="mt-0.5 truncate font-semibold">{name}</h2>
+          {where && <p className="truncate text-sm text-muted">{where}</p>}
+        </div>
+        <Button variant="ghost" size="icon" className="size-8" onClick={onClose} aria-label={t("common.close")}><X className="size-4" /></Button>
+      </div>
+      <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
+        <Detail icon={Clock3} label={t("map.viz.duration")} value={duration(v.end - v.start)} />
+        <Detail icon={MapPin} label={t("map.viz.when")} value={`${dateTime(v.start, clock)} – ${dateTime(v.end, clock).split(", ").pop()}`} />
+      </dl>
+      <Link to={`/timeline/${dayKey(v.start)}`} className="mt-3 flex items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-medium text-primary hover:bg-primary-subtle">
+        <CalendarDays className="size-4" aria-hidden />
+        {t("map.viz.openDay")}
+      </Link>
     </div>
   );
 }
