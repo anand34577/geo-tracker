@@ -117,6 +117,8 @@ fun GeoMap(
             if (map == null) { // once per map: a style change must not stack another click listener
                 m.uiSettings.isAttributionEnabled = true
                 m.uiSettings.isLogoEnabled = false
+                // The default left margin leaves room for the logo; with it off the icon would sit under the record button.
+                m.uiSettings.setAttributionMargins((8 * density).toInt(), 0, 0, (8 * density).toInt())
                 m.uiSettings.isCompassEnabled = true
                 m.uiSettings.setCompassMargins(0, (fitTopDp * density).toInt(), (12 * density).toInt(), 0)
                 m.uiSettings.isRotateGesturesEnabled = true
