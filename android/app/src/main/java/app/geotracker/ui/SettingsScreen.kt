@@ -55,7 +55,8 @@ fun SettingsScreen() {
         MapSection()
         Data()
         val ctx = LocalContext.current
-        Text("GeoTracker for Android · " + ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName,style = MaterialTheme.typography.labelSmall,
+        val versionName = remember { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }
+        Text("GeoTracker for Android · $versionName", style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 24.dp))
     }
 }
@@ -185,7 +186,16 @@ private fun Recording() {
             if (prefs.adaptive) SliderSetting("Fix every, when still", prefs.stillInterval, 30..600, 10, { "$it s" }) { prefs.stillInterval = it; changed() }
         }
         val pm = ctx.getSystemService(PowerManager::class.java)
-        if (!pm.isIgnoringBatteryOptimizations(ctx.packageName)) Link(Icons.Rounded.BatteryAlert, "Allow running in the background",
+        var exempt by remember { mutableStateOf(pm.isIgnoringBatteryOptimizations(ctx.packageName)) }
+        val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+        DisposableEffect(owner) {
+            val obs = androidx.lifecycle.LifecycleEventObserver { _, e ->
+                if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) exempt = pm.isIgnoringBatteryOptimizations(ctx.packageName)
+            }
+            owner.lifecycle.addObserver(obs)
+            onDispose { owner.lifecycle.removeObserver(obs) }
+        }
+        if (!exempt) Link(Icons.Rounded.BatteryAlert, "Allow running in the background",
             "Some phones stop recording to save battery. Exempt GeoTracker.") {
             ctx.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${ctx.packageName}")))
         }
