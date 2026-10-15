@@ -78,6 +78,7 @@ fun MapScreen(dark: Boolean, openDay: (LocalDate) -> Unit) {
     }
 
     val me = track.last ?: latest?.fix()
+    val ready = rememberReadiness()
     Box(Modifier.fillMaxSize()) {
         GeoMap(
             MapData(path = today, places = places, people = people, me = me),
@@ -87,6 +88,7 @@ fun MapScreen(dark: Boolean, openDay: (LocalDate) -> Unit) {
         // Status card
         Column(Modifier.fillMaxWidth().statusBarsPadding().padding(12.dp)) {
             StatusCard(track.running, track.paused, track.moving, me, queued, connected, todayDist, today.size) { openDay(LocalDate.now()) }
+            AttentionBanner(ready, track.running)
         }
 
         // Map controls
@@ -97,7 +99,7 @@ fun MapScreen(dark: Boolean, openDay: (LocalDate) -> Unit) {
             if (connected && people.isNotEmpty()) MapButton(Icons.Rounded.Groups, "People") { showPeople = true }
         }
 
-        TrackButton(track.running, Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp))
+        TrackButton(track.running, ready, Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp))
     }
 
     if (showPeople) ModalBottomSheet({ showPeople = false }) {
@@ -226,18 +228,27 @@ fun MapButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: Stri
 }
 
 @Composable
-private fun TrackButton(running: Boolean, modifier: Modifier) {
+private fun TrackButton(running: Boolean, ready: Readiness, modifier: Modifier) {
     val ctx = LocalContext.current
     var askBackground by remember { mutableStateOf(false) }
     val background = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     var denied by remember { mutableStateOf(false) }
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
-        // Fine location can be missing when only "approximate" was chosen; recording needs precise.
-        if (granted(ctx, Manifest.permission.ACCESS_FINE_LOCATION) && TrackingService.start(ctx)) {
-            if (!granted(ctx, Manifest.permission.ACCESS_BACKGROUND_LOCATION)) askBackground = true
-        } else {
-            denied = true
+    var locationOff by remember { mutableStateOf(false) }
+    // Set while the user is in the system location settings: recording starts when they come back with it on.
+    var pendingStart by remember { mutableStateOf(false) }
+
+    fun begin() {
+        when {
+            // Fine location can be missing when only "approximate" was chosen; recording needs precise.
+            !granted(ctx, Manifest.permission.ACCESS_FINE_LOCATION) -> denied = true
+            !TrackingService.locationOn(ctx) -> locationOff = true
+            TrackingService.start(ctx) -> if (!granted(ctx, Manifest.permission.ACCESS_BACKGROUND_LOCATION)) askBackground = true
+            else -> denied = true
         }
+    }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { begin() }
+    LaunchedEffect(ready.locationOn, pendingStart) {
+        if (pendingStart && ready.locationOn) { pendingStart = false; begin() }
     }
     ExtendedFloatingActionButton(
         onClick = {
@@ -253,6 +264,20 @@ private fun TrackButton(running: Boolean, modifier: Modifier) {
         contentColor = if (running) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onPrimary,
         shape = RoundedCornerShape(28.dp),
         modifier = modifier,
+    )
+    if (locationOff) AlertDialog(
+        onDismissRequest = { locationOff = false },
+        icon = { Icon(Icons.Rounded.LocationOff, null) },
+        title = { Text("Location is turned off") },
+        text = { Text("Turn on your phone's location so GeoTracker can record where you go. Recording starts as soon as you come back.") },
+        confirmButton = {
+            TextButton({
+                locationOff = false; pendingStart = true
+                runCatching { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS)) }
+                    .onFailure { pendingStart = false }
+            }) { Text("Turn on location") }
+        },
+        dismissButton = { TextButton({ locationOff = false }) { Text("Not now") } },
     )
     if (denied) AlertDialog(
         onDismissRequest = { denied = false },
@@ -276,6 +301,71 @@ private fun TrackButton(running: Boolean, modifier: Modifier) {
         confirmButton = { TextButton({ askBackground = false; background.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION) }) { Text("Continue") } },
         dismissButton = { TextButton({ askBackground = false }) { Text("Not now") } },
     )
+}
+
+/** What recording needs from the phone right now. Refreshed on resume and when the location switch changes. */
+data class Readiness(val permission: Boolean, val locationOn: Boolean, val background: Boolean, val notifications: Boolean = true)
+
+@Composable
+fun rememberReadiness(): Readiness {
+    val ctx = LocalContext.current
+    fun read() = Readiness(
+        granted(ctx, Manifest.permission.ACCESS_FINE_LOCATION), TrackingService.locationOn(ctx),
+        granted(ctx, Manifest.permission.ACCESS_BACKGROUND_LOCATION),
+        androidx.core.app.NotificationManagerCompat.from(ctx).areNotificationsEnabled(),
+    )
+    var r by remember { mutableStateOf(read()) }
+    val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(owner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, e ->
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) r = read()
+        }
+        val receiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: Context?, i: android.content.Intent?) { r = read() }
+        }
+        owner.lifecycle.addObserver(observer)
+        ContextCompat.registerReceiver(
+            ctx, receiver,
+            android.content.IntentFilter(android.location.LocationManager.PROVIDERS_CHANGED_ACTION)
+                .apply { addAction(android.location.LocationManager.MODE_CHANGED_ACTION) },
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        onDispose { owner.lifecycle.removeObserver(observer); ctx.unregisterReceiver(receiver) }
+    }
+    return r
+}
+
+/** One actionable line when recording can't work (or won't survive the screen turning off). */
+@Composable
+private fun AttentionBanner(ready: Readiness, running: Boolean) {
+    val ctx = LocalContext.current
+    fun open(action: String, uri: android.net.Uri? = null) {
+        runCatching { ctx.startActivity(android.content.Intent(action, uri)) }
+    }
+    val appSettings = { open(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:${ctx.packageName}")) }
+    val (text, action, go) = when {
+        !ready.permission -> Triple("Location permission is off. GeoTracker can't record without it.", "Allow", appSettings)
+        !ready.locationOn -> Triple(
+            if (running) "Location is turned off, so nothing is being recorded." else "Location is turned off. Turn it on to record.",
+            "Turn on", { open(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS) },
+        )
+        running && !ready.background ->
+            Triple("Recording may stop when the screen is off. Set location to \"Allow all the time\".", "Fix", appSettings)
+        running && !ready.notifications ->
+            Triple("Notifications are blocked, so you won't see that recording is on. Recording still works.", "Allow", appSettings)
+        else -> return
+    }
+    Surface(
+        shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.errorContainer,
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+    ) {
+        Row(Modifier.padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.LocationOff, null, tint = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(10.dp))
+            Text(text, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+            TextButton(go) { Text(action) }
+        }
+    }
 }
 
 fun granted(ctx: Context, p: String) = ContextCompat.checkSelfPermission(ctx, p) == PackageManager.PERMISSION_GRANTED

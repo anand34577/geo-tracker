@@ -47,12 +47,19 @@ function useSubmit(fn: () => Promise<User>, onDone: () => void) {
   return { error, busy, submit };
 }
 
+/** Same-site paths only: "//host", "/\host" and control characters (tabs get stripped by browsers) could leave the app. */
+function safeNext(raw: string | null): string {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/";
+  for (const ch of raw) if (ch.charCodeAt(0) < 32 || ch === "\\") return "/";
+  return raw;
+}
+
 export function Login() {
   const { t } = useTranslation();
   const me = useMe();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const next = params.get("next")?.startsWith("/") ? params.get("next")! : "/";
+  const next = safeNext(params.get("next"));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const { error, busy, submit } = useSubmit(() => api<User>("/auth/login", { method: "POST", body: { email, password } }), () => navigate(next, { replace: true }));

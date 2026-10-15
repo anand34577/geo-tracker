@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"strconv"
 	"time"
 
 	"geotracker/internal/geo"
@@ -210,5 +211,34 @@ func TestForwardedProtoNeedsTrustedProxy(t *testing.T) {
 	r.Header.Set("X-Forwarded-Proto", "https")
 	if s.isHTTPS(r) {
 		t.Error("X-Forwarded-Proto from an untrusted client was believed")
+	}
+}
+
+func TestSafeNextStaysOnSite(t *testing.T) {
+	for _, bad := range []string{"//evil.com", `/\evil.com`, "/\t/evil.com", "/\n/evil.com", "https://evil.com", "evil.com", ""} {
+		if got := safeNext(bad); got != "/" {
+			t.Errorf("safeNext(%q) = %q, want /", bad, got)
+		}
+	}
+	for _, ok := range []string{"/", "/map", "/timeline?day=2026-01-02"} {
+		if got := safeNext(ok); got != ok {
+			t.Errorf("safeNext(%q) = %q, want unchanged", ok, got)
+		}
+	}
+}
+
+func TestLimiterEvictionKeepsHotKeys(t *testing.T) {
+	l := newLimiter()
+	for range 5 {
+		l.allow("victim", 5, time.Hour)
+	}
+	for i := range maxLimiterKeys + 500 {
+		l.allow("junk"+strconv.Itoa(i), 5, time.Hour)
+	}
+	if l.allow("victim", 5, time.Hour) {
+		t.Fatal("flooding junk keys reset a limited key")
+	}
+	if l.allow("brand-new", 5, time.Hour) {
+		t.Fatal("a full limiter must refuse unseen keys")
 	}
 }

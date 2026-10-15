@@ -100,6 +100,12 @@ private fun PlaceEditor(initial: PlaceRow, dark: Boolean, others: List<PlaceRow>
     val isNew = initial.lat == 0.0 && initial.lon == 0.0
     var p by remember { mutableStateOf(if (isNew && here != null) initial.copy(lat = here.lat, lon = here.lon) else initial) }
     var fit by remember { mutableStateOf(if (p.lat != 0.0 || p.lon != 0.0) CameraTarget(LatLng(p.lat, p.lon)) else null) }
+    // The first fix can arrive after the editor opened: a brand-new place follows it until a position is chosen.
+    LaunchedEffect(here?.ts) {
+        if (isNew && here != null && p.lat == 0.0 && p.lon == 0.0) {
+            p = p.copy(lat = here.lat, lon = here.lon); fit = CameraTarget(here.latLng())
+        }
+    }
     var search by remember { mutableStateOf("") }
     var hits by remember { mutableStateOf<List<Triple<String, Double, Double>>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }

@@ -17,6 +17,7 @@ import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import androidx.core.location.LocationManagerCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,6 +32,8 @@ data class TrackState(
     val paused: String? = null, // name of the pause zone we're in
     val accepted: Int = 0,
     val dropped: Int = 0,
+    /** Running, but the phone's location switch is off so nothing can be recorded. */
+    val locationOff: Boolean = false,
 )
 
 /**
@@ -78,6 +81,7 @@ class TrackingService : Service(), LocationListener {
         }
         state.value = state.value.copy(running = true)
         request()
+        notify(notification())
         return START_STICKY
     }
 
@@ -86,6 +90,8 @@ class TrackingService : Service(), LocationListener {
         lm.removeUpdates(this)
         val ms = effectiveInterval() * 1000L
         val providers = lm.getProviders(true)
+        val off = LocationManager.GPS_PROVIDER !in providers && LocationManager.NETWORK_PROVIDER !in providers
+        if (off != state.value.locationOff) state.value = state.value.copy(locationOff = off)
         // The distance filter is applied in accept(), not by the provider: a provider-side filter
         // goes completely silent while you stand still, so the quiet-period heartbeat never ran.
         if (LocationManager.GPS_PROVIDER in providers)
@@ -162,6 +168,7 @@ class TrackingService : Service(), LocationListener {
     private fun notification(): Notification {
         val s = state.value
         val text = when {
+            s.locationOff -> "Location is turned off. Turn it on to keep recording."
             s.paused != null -> "Paused in ${s.paused}"
             s.last == null -> "Waiting for GPS…"
             else -> "±${s.last.acc?.toInt() ?: "?"} m · ${if (s.moving) "moving" else "stationary"} · ${s.accepted} fixes"
@@ -188,16 +195,21 @@ class TrackingService : Service(), LocationListener {
     override fun onDestroy() {
         lm.removeUpdates(this)
         scope.cancel()
-        state.value = state.value.copy(running = false)
+        state.value = state.value.copy(running = false, locationOff = false)
         super.onDestroy()
     }
 
-    override fun onProviderEnabled(provider: String) = request()
-    override fun onProviderDisabled(provider: String) {}
+    // Re-evaluates which providers are usable and refreshes the notification (location switched off/on).
+    override fun onProviderEnabled(provider: String) { request(); notify(notification()) }
+    override fun onProviderDisabled(provider: String) { request(); notify(notification()) }
 
     companion object {
         private const val ACTION_STOP = "stop"
         val state = MutableStateFlow(TrackState())
+
+        /** True when the phone's location switch is on (any provider). */
+        fun locationOn(ctx: Context): Boolean =
+            ctx.getSystemService(LocationManager::class.java)?.let { LocationManagerCompat.isLocationEnabled(it) } ?: false
 
         /** False (and nothing started) when location permission is missing. */
         fun start(ctx: Context): Boolean {

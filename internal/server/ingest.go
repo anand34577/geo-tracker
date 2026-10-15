@@ -7,7 +7,9 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
 
 	"geotracker/internal/geo"
 	"geotracker/internal/ingest"
@@ -107,6 +109,13 @@ func (s *Server) ingest(kind string) http.HandlerFunc {
 			if userID, deviceID, ok = lookup(); !ok {
 				return
 			}
+		}
+
+		// A leaked token must not be able to flood the database; real apps send a few requests a minute.
+		if !s.logins.allow("ingest:"+strconv.FormatInt(deviceID, 10), 600, time.Minute) {
+			w.Header().Set("Retry-After", "60")
+			fail(w, http.StatusTooManyRequests, "too many uploads, slow down")
+			return
 		}
 
 		valid := pts[:0]

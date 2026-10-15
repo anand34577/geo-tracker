@@ -124,7 +124,7 @@ interface EditDao {
     suspend fun delete(start: Long, kind: String)
 }
 
-@Database(entities = [PointRow::class, PlaceRow::class, EditRow::class], version = 1, exportSchema = false)
+@Database(entities = [PointRow::class, PlaceRow::class, EditRow::class], version = 1, exportSchema = true)
 abstract class Db : RoomDatabase() {
     abstract fun points(): PointDao
     abstract fun places(): PlaceDao
