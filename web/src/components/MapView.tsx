@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AttributionControl, LngLatBounds, Map as MLMap, Marker, NavigationControl, setWorkerUrl, type GeoJSONSource } from "maplibre-gl";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
-import { Check, Layers, WifiOff } from "lucide-react";
+import { Check, Layers, Palette, WifiOff } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useConfig, useMe, type PointRow } from "../lib/api";
+import { activeFilters, ALT_STOPS, coloredFeatures, extentOf, MISSING, SPEED_STOPS, TIME_STOPS, type Extent, type Filtered, type Stop, type Viz } from "../lib/viz";
 import { useIsDark, usePrefs, useSavePrefs } from "../lib/prefs";
 import { Popover, Switch } from "./controls";
 import { cn, Skeleton } from "./ui";
+import { Legend, VizControls } from "./VizPanel";
 
 // MapLibre resolves its worker next to its own module file, which does not exist once
 // bundled; Vite builds the worker separately and hands us its URL.
@@ -27,8 +29,12 @@ type Props = {
   visits?: { id: number; lon: number; lat: number; active?: boolean }[];
   places?: { id: number; lon: number; lat: number; radius: number }[];
   me?: { lon: number; lat: number; acc?: number } | null;
-  /** A highlighted stretch (e.g. one trip), drawn over the path; the map zooms to it when `key` changes. */
-  highlight?: { path: LonLat[]; key: string } | null;
+  /** A highlighted stretch (e.g. one trip), drawn over the path with start and end markers; the map zooms to it when `key` changes unless `fly` is false (hover). */
+  highlight?: { path: LonLat[]; key: string; fly?: boolean } | null;
+  /** Points after filtering, with their speeds; `points` should be `flt.rows`. Enables colouring and the visualize menu. */
+  flt?: Filtered;
+  viz?: Viz;
+  onVizChange?: (v: Viz) => void;
   /** Playback head. */
   marker?: { lon: number; lat: number } | null;
   /** Family members, drawn as avatar markers. */
@@ -74,8 +80,9 @@ const fc = <T,>(items: T[] | undefined, f: (x: T, i: number) => object) => ({ ty
 // frame, and re-sending thousands of points with it made the map stutter. `key` is compared with ===,
 // so small inputs that parents rebuild every render (visits, me, marker) are keyed by value.
 const sources: Record<string, { key: (d: Props) => unknown; build: (d: Props) => object }> = {
+  cpath: { key: (d) => d.flt ?? null, build: (d) => (d.flt ? coloredFeatures(d.flt, extentOf(d.flt)) : EMPTY) },
   path: { key: (d) => d.path, build: (d) => fc(d.path?.filter((s) => s.length > 1), (s) => ({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: s } })) },
-  pts: { key: (d) => d.points, build: (d) => fc(d.points, (r, i) => ({ type: "Feature", properties: { i }, geometry: { type: "Point", coordinates: [r[2], r[1]] } })) },
+  pts: { key: (d) => d.flt ?? d.points, build: (d) => fc(d.points, (r, i) => ({ type: "Feature", properties: { i, v: d.flt?.speed[i] ?? 0 }, geometry: { type: "Point", coordinates: [r[2], r[1]] } })) },
   visits: { key: (d) => JSON.stringify(d.visits ?? null), build: (d) => fc(d.visits, (v) => ({ type: "Feature", properties: { id: v.id, active: !!v.active }, geometry: { type: "Point", coordinates: [v.lon, v.lat] } })) },
   places: { key: (d) => d.places, build: (d) => fc(d.places, (p) => ({ type: "Feature", properties: { id: p.id }, geometry: { type: "Polygon", coordinates: [circle(p.lon, p.lat, p.radius)] } })) },
   me: {
@@ -88,12 +95,26 @@ const sources: Record<string, { key: (d: Props) => unknown; build: (d: Props) =>
               : { type: "Feature", properties: { kind }, geometry: { type: "Point", coordinates: [me.lon, me.lat] } })
         : EMPTY,
   },
-  hl: { key: (d) => d.highlight?.key ?? null, build: (d) => fc(d.highlight && d.highlight.path.length > 1 ? [d.highlight.path] : [], (s) => ({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: s } })) },
+  hl: {
+    key: (d) => d.highlight?.key ?? null,
+    build: (d) => {
+      const h = d.highlight;
+      if (!h || h.path.length < 2) return EMPTY;
+      return {
+        type: "FeatureCollection" as const,
+        features: [
+          { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: h.path } },
+          { type: "Feature", properties: { kind: "start" }, geometry: { type: "Point", coordinates: h.path[0] } },
+          { type: "Feature", properties: { kind: "end" }, geometry: { type: "Point", coordinates: h.path[h.path.length - 1] } },
+        ],
+      };
+    },
+  },
   head: { key: (d) => JSON.stringify(d.marker ?? null), build: (d) => fc(d.marker ? [d.marker] : [], (m) => ({ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [m.lon, m.lat] } })) },
 };
 
 const layerGroups: Record<keyof LayerToggles, string[]> = {
-  path: ["path-casing", "path", "hl-casing", "hl"],
+  path: ["path-casing", "path", "cpath-casing", "cpath", "hl-casing", "hl", "hl-start", "hl-end"],
   points: ["pts"],
   heatmap: ["heat"],
   visits: ["visits"],
@@ -139,11 +160,41 @@ function pinElement(image: string | undefined, label: string | undefined, onClic
   return el;
 }
 
+const ramp = (input: unknown, stops: Stop[]) => ["interpolate", ["linear"], input, ...stops.flat()] as never;
+const speedWidth = (extra: number) => ["interpolate", ["linear"], ["get", "v"], 0, 2.5 + extra, 1.4, 3.5 + extra, 14, 6 + extra, 33, 9 + extra] as never;
+
+/** Does the coloured per-segment layer replace the plain path? */
+const isColored = (v: Viz | undefined) => !!v && (v.color !== "solid" || v.width === "speed");
+
+/** Colour, weight and heatmap weighting follow the visualization settings; the rest of the path dims behind a highlight. */
+function applyViz(map: MLMap, p: Props, primary: string) {
+  const v = p.viz;
+  const dim = p.highlight ? 0.35 : 1;
+  const base = v?.width === "bold" ? 6 : 3.5;
+  const color =
+    !v || v.color === "solid" ? primary
+    : v.color === "speed" ? ramp(["get", "v"], SPEED_STOPS)
+    : v.color === "time" ? ramp(["get", "f"], TIME_STOPS)
+    : (["interpolate", ["linear"], ["get", "e"], -1, MISSING, ...ALT_STOPS.flat()] as never);
+  for (const id of ["path", "cpath"]) map.setPaintProperty(id, "line-opacity", dim);
+  for (const id of ["path-casing", "cpath-casing"]) map.setPaintProperty(id, "line-opacity", 0.9 * dim);
+  map.setPaintProperty("path", "line-width", base);
+  map.setPaintProperty("path-casing", "line-width", base + 3.5);
+  map.setPaintProperty("cpath", "line-color", color);
+  map.setPaintProperty("cpath", "line-width", v?.width === "speed" ? speedWidth(0) : base);
+  map.setPaintProperty("cpath-casing", "line-width", v?.width === "speed" ? speedWidth(3.5) : base + 3.5);
+  const w =
+    v?.heat === "dwell" ? (["max", 0.1, ["-", 1, ["min", 1, ["/", ["get", "v"], 4]]]] as never)
+    : v?.heat === "speed" ? (["max", 0.1, ["min", 1, ["/", ["get", "v"], 30]]] as never)
+    : 1;
+  map.setPaintProperty("heat", "heatmap-weight", w);
+}
+
 function addLayers(map: MLMap) {
   const css = getComputedStyle(document.documentElement);
   const primary = css.getPropertyValue("--primary").trim();
   const surface = css.getPropertyValue("--surface").trim();
-  for (const id of ["places", "path", "hl", "pts", "visits", "me", "head"]) map.addSource(id, { type: "geojson", data: EMPTY });
+  for (const id of ["places", "path", "cpath", "hl", "pts", "visits", "me", "head"]) map.addSource(id, { type: "geojson", data: EMPTY });
   map.addLayer({ id: "places-fill", type: "fill", source: "places", paint: { "fill-color": primary, "fill-opacity": 0.1 } });
   map.addLayer({ id: "places-line", type: "line", source: "places", paint: { "line-color": primary, "line-width": 1.5, "line-dasharray": [2, 2] } });
   map.addLayer({
@@ -159,8 +210,12 @@ function addLayers(map: MLMap) {
   });
   map.addLayer({ id: "path-casing", type: "line", source: "path", layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": surface, "line-width": 7, "line-opacity": 0.9 } });
   map.addLayer({ id: "path", type: "line", source: "path", layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": primary, "line-width": 3.5 } });
+  map.addLayer({ id: "cpath-casing", type: "line", source: "cpath", layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": surface, "line-width": 7, "line-opacity": 0.9 } });
+  map.addLayer({ id: "cpath", type: "line", source: "cpath", layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": primary, "line-width": 3.5 } });
   map.addLayer({ id: "hl-casing", type: "line", source: "hl", layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": surface, "line-width": 11 } });
   map.addLayer({ id: "hl", type: "line", source: "hl", layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": "#f97316", "line-width": 6 } });
+  map.addLayer({ id: "hl-start", type: "circle", source: "hl", filter: ["==", ["get", "kind"], "start"], paint: { "circle-radius": 8, "circle-color": "#22c55e", "circle-stroke-color": "#fff", "circle-stroke-width": 3 } });
+  map.addLayer({ id: "hl-end", type: "circle", source: "hl", filter: ["==", ["get", "kind"], "end"], paint: { "circle-radius": 8, "circle-color": "#ef4444", "circle-stroke-color": "#fff", "circle-stroke-width": 3 } });
   map.addLayer({
     id: "pts",
     type: "circle",
@@ -221,8 +276,19 @@ export default function MapView(props: Props) {
       (map.getSource(id) as GeoJSONSource | undefined)?.setData(s.build(p) as never);
     }
     const l = p.layers ?? defaultLayers;
+    const colored = isColored(p.viz) && !!p.flt;
     for (const [group, ids] of Object.entries(layerGroups)) {
-      for (const id of ids) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", l[group as keyof LayerToggles] ? "visible" : "none");
+      for (const id of ids) {
+        if (!map.getLayer(id)) continue;
+        // The plain path and the coloured one are alternatives; the highlight shows over whichever is on.
+        const on = l[group as keyof LayerToggles] && (id.startsWith("cpath") ? colored : id === "path" || id === "path-casing" ? !colored : true);
+        map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+      }
+    }
+    const vk = JSON.stringify([p.viz?.color, p.viz?.width, p.viz?.heat, !!p.highlight, colored]);
+    if (sent.current.get("viz") !== vk) {
+      sent.current.set("viz", vk);
+      applyViz(map, p, getComputedStyle(document.documentElement).getPropertyValue("--primary").trim());
     }
     // Opened with a target (?place=, ?person=) that was flown to before the style loaded: keep it, skip the first fit.
     if (p.fit !== undefined && lastFit.current === undefined && p.focus) lastFit.current = p.fit;
@@ -258,7 +324,8 @@ export default function MapView(props: Props) {
     const map = new MLMap({ container: el.current, style: styleUrl, center: [10, 30], zoom: 1.5, attributionControl: false, dragRotate: false });
     mapRef.current = map;
     map.addControl(new NavigationControl({ showCompass: false }), "bottom-right");
-    map.addControl(new AttributionControl({ compact: true }), "bottom-left");
+    // Top-right, under the layers button: the bottom corners are covered by the floating cards.
+    map.addControl(new AttributionControl({ compact: true }), "top-right");
     map.on("style.load", () => {
       sent.current.clear(); // a new style starts with empty sources
       addLayers(map);
@@ -269,12 +336,15 @@ export default function MapView(props: Props) {
     map.on("error", (e) => {
       if (!ready.current && String(e.error?.message ?? "").match(/style|Failed to fetch/i)) setFailed(true);
     });
-    const clickable = ["visits", "pts"];
+    const clickable = ["visits", "pts", "cpath"];
     map.on("click", (e) => {
       const f = map.queryRenderedFeatures(e.point, { layers: clickable.filter((l) => map.getLayer(l)) })[0];
       const p = propsRef.current;
       if (f?.layer.id === "visits") return p.onVisitClick?.(Number(f.properties.id));
-      if (f?.layer.id === "pts" && p.points) return p.onPointClick?.(p.points[Number(f.properties.i)]);
+      if ((f?.layer.id === "pts" || f?.layer.id === "cpath") && p.points) {
+        const row = p.points[Number(f.properties.i)];
+        if (row) return p.onPointClick?.(row);
+      }
       p.onMapClick?.(e.lngLat.lng, e.lngLat.lat);
     });
     for (const l of clickable) {
@@ -288,7 +358,7 @@ export default function MapView(props: Props) {
     };
   }, [!!styleUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { sync(); }, [props.path, props.points, props.visits, props.places, props.me, props.marker, props.highlight, props.fit, layers]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { sync(); }, [props.path, props.points, props.flt, props.viz, props.visits, props.places, props.me, props.marker, props.highlight, props.fit, layers]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Family avatars are DOM markers: crisp, clickable, and independent of the map style.
   useEffect(() => {
@@ -326,7 +396,7 @@ export default function MapView(props: Props) {
   // Zoom to a newly highlighted stretch.
   useEffect(() => {
     const h = props.highlight, map = mapRef.current;
-    if (!h || h.path.length < 2 || !map) return;
+    if (!h || h.path.length < 2 || !map || h.fly === false) return;
     const b = new LngLatBounds();
     h.path.forEach((pt) => b.extend(pt));
     map.fitBounds(b, { padding: props.fitPadding ?? { top: 80, bottom: 80, left: 64, right: 64 }, maxZoom: 16, duration: 600 });
@@ -338,10 +408,17 @@ export default function MapView(props: Props) {
   }, [props.focus?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const showMenu = signedIn && (basemaps.length > 1 || !!props.onLayersChange);
+  const showViz = !!props.viz && !!props.onVizChange && !!props.flt;
+  const ext = useMemo<Extent>(() => (props.flt ? extentOf(props.flt) : { from: 0, to: 0, altMin: null, altMax: null, vMax: 0 }), [props.flt]);
+  const legend = showViz && props.viz!.color !== "solid" && (props.flt?.rows.length ?? 0) > 1;
+  const { units, clock } = prefs;
+  const [vizOpen, setVizOpen] = useState(false);
+  const vizBtn = useRef<HTMLButtonElement>(null);
+  const nFilters = props.viz ? activeFilters(props.viz) : 0;
   const layerNames: (keyof LayerToggles)[] = ["path", "points", "heatmap", "visits", "places", ...(props.people?.length ? (["family"] as const) : [])];
 
   return (
-    <div className={cn("relative overflow-hidden bg-surface-2", props.className)}>
+    <div className={cn("relative overflow-hidden bg-surface-2", showMenu && "gt-has-layers", showViz && "gt-has-viz", legend && "gt-has-legend", props.className)}>
       {/* sized with h-full, not absolute: MapLibre's CSS forces position:relative on this element */}
       <div ref={el} className="h-full w-full" role="region" aria-label={props.label} />
       {!styleUrl && <Skeleton className="absolute inset-0 rounded-none" />}
@@ -389,6 +466,29 @@ export default function MapView(props: Props) {
                 ))}
               </>
             )}
+          </Popover>
+        </div>
+      )}
+      {showViz && (
+        <div className={cn("pointer-events-none absolute right-3 z-10 flex w-40 flex-col items-end gap-2 *:pointer-events-auto", showMenu ? "top-[3.75rem]" : "top-3")}>
+          <button
+            ref={vizBtn}
+            onClick={() => setVizOpen(!vizOpen)}
+            aria-expanded={vizOpen}
+            className="relative grid size-10 place-items-center rounded-xl border border-border bg-surface text-fg shadow-pop hover:bg-surface-2"
+            aria-label={t("map.viz.title")}
+            title={t("map.viz.title")}
+          >
+            <Palette className="size-5" />
+            {nFilters > 0 && <span className="absolute -top-1.5 -right-1.5 grid size-5 place-items-center rounded-full bg-primary text-[10px] font-semibold text-primary-fg">{nFilters}</span>}
+          </button>
+          {legend && (
+            <div className="w-40 rounded-xl border border-border bg-surface/95 px-2.5 py-2 shadow-pop backdrop-blur-sm">
+              <Legend viz={props.viz!} ext={ext} units={units} clock={clock} />
+            </div>
+          )}
+          <Popover anchor={vizBtn} open={vizOpen} onClose={() => setVizOpen(false)} align="end" className="w-[22rem] max-w-[calc(100vw-1.5rem)] p-0">
+            <VizControls viz={props.viz!} onChange={props.onVizChange!} ext={ext} units={units} clock={clock} shown={props.flt!.rows.length} total={props.flt!.total} />
           </Popover>
         </div>
       )}
