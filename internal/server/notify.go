@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -146,11 +147,22 @@ func (s *Server) notifyUser(userID int64, event, title, body string) {
 	}()
 }
 
-// checkPointEvents runs after each ingest for the newest fix of a device.
-func (s *Server) checkPointEvents(ctx context.Context, userID, deviceID int64, p geo.Point) {
-	if time.Since(time.UnixMilli(p.TS)) > 15*time.Minute { // late batch uploads are history, not news
+// freshEvent is how recent a fix must be for its arrive/leave to be announced. A phone that
+// uploads every 15 minutes delivers fixes up to that old, and they are still news; an hours-old
+// backlog is history and only updates the remembered state.
+const freshEvent = 60 * time.Minute
+
+// checkPointEvents runs after each ingest. The newest fix drives battery and family alerts; every
+// fix in the batch, oldest first, drives arrive/leave so quick visits inside a batch are not lost.
+func (s *Server) checkPointEvents(ctx context.Context, userID, deviceID int64, batch []geo.Point) {
+	if len(batch) == 0 {
 		return
 	}
+	if len(batch) > 1 {
+		batch = append([]geo.Point(nil), batch...)
+		sort.Slice(batch, func(i, j int) bool { return batch[i].TS < batch[j].TS })
+	}
+	p := batch[len(batch)-1]
 	raw, err := s.db.UserNotify(ctx, userID)
 	if err != nil {
 		return
@@ -160,27 +172,42 @@ func (s *Server) checkPointEvents(ctx context.Context, userID, deviceID int64, p
 	if err != nil {
 		return
 	}
-	s.publishFamily(ctx, userID)
-	s.checkFamilyAlerts(ctx, u, deviceID, p)
+	if time.Since(time.UnixMilli(p.TS)) <= 15*time.Minute { // late batch uploads are history, not news
+		s.publishFamily(ctx, userID)
+		s.checkFamilyAlerts(ctx, u, deviceID, p)
 
-	// Battery crossing below the threshold.
-	if p.Battery != nil && deviceID != 0 { // 0 = browser "send my location", shared by every user
-		s.notes.mu.Lock()
-		prev, known := s.notes.battery[deviceID]
-		s.notes.battery[deviceID] = *p.Battery
-		s.notes.mu.Unlock()
-		if known && prev >= prefs.BatteryBelow && *p.Battery < prefs.BatteryBelow {
-			s.notifyUser(userID, "battery_low", fmt.Sprintf("Battery low: %d%%", *p.Battery),
-				fmt.Sprintf("%s's phone is at %d%%. Tracking stops if it runs out.", u.Name, *p.Battery))
+		// Battery crossing below the threshold.
+		if p.Battery != nil && deviceID != 0 { // 0 = browser "send my location", shared by every user
+			s.notes.mu.Lock()
+			prev, known := s.notes.battery[deviceID]
+			s.notes.battery[deviceID] = *p.Battery
+			s.notes.mu.Unlock()
+			if known && prev >= prefs.BatteryBelow && *p.Battery < prefs.BatteryBelow {
+				s.notifyUser(userID, "battery_low", fmt.Sprintf("Battery low: %d%%", *p.Battery),
+					fmt.Sprintf("%s's phone is at %d%%. Tracking stops if it runs out.", u.Name, *p.Battery))
+			}
 		}
 	}
 
-	// Arriving at / leaving saved places, with hysteresis so GPS jitter at the edge doesn't flap.
-	if p.Accuracy != nil && *p.Accuracy > 100 {
+	// Only the last day matters for places; a bulk import must not walk every fix.
+	cutoff := time.Now().Add(-24 * time.Hour).UnixMilli()
+	i := sort.Search(len(batch), func(i int) bool { return batch[i].TS >= cutoff })
+	if i == len(batch) {
 		return
 	}
 	places, err := s.db.Places(ctx, userID)
 	if err != nil {
+		return
+	}
+	for _, q := range batch[i:] {
+		s.trackPlaces(u, userID, deviceID, places, q)
+	}
+}
+
+// trackPlaces handles arriving at / leaving saved places for one fix, with hysteresis so GPS
+// jitter at the edge doesn't flap.
+func (s *Server) trackPlaces(u *store.User, userID, deviceID int64, places []store.Place, p geo.Point) {
+	if p.Accuracy != nil && *p.Accuracy > 100 {
 		return
 	}
 	byID := map[int64]*store.Place{}
@@ -214,6 +241,9 @@ func (s *Server) checkPointEvents(ctx context.Context, userID, deviceID int64, p
 	after := occupied(devs, p.TS)
 	s.notes.mu.Unlock()
 	if !known { // first fix since start-up only learns
+		return
+	}
+	if time.Since(time.UnixMilli(p.TS)) > freshEvent {
 		return
 	}
 	for id := range before {
@@ -385,7 +415,7 @@ func (s *Server) testNotify(w http.ResponseWriter, r *http.Request, u *store.Use
 		fail(w, http.StatusBadRequest, "channel must be email, gotify, ntfy or telegram")
 		return
 	}
-	if !s.logins.allow("notify-test:"+strconv.FormatInt(u.ID, 10), 10, 10*time.Minute) {
+	if !s.quotas.allow("notify-test:"+strconv.FormatInt(u.ID, 10), 10, 10*time.Minute) {
 		fail(w, http.StatusTooManyRequests, "too many test messages, wait a few minutes")
 		return
 	}

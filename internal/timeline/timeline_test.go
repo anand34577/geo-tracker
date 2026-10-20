@@ -117,3 +117,42 @@ func TestFlightAcrossGap(t *testing.T) {
 		t.Fatalf("trips = %+v, want one flight", b.Trips)
 	}
 }
+
+func TestIsJump(t *testing.T) {
+	a := geo.Point{TS: t0, Lat: 52.52, Lon: 13.405}
+	// 3 km east in 15 s = 200 m/s: impossible for a bus, under the 350 m/s hard cap.
+	far := geo.Point{TS: t0 + 15_000, Lat: 52.52, Lon: 13.405 + 0.0443}
+	if !IsJump(a, far) {
+		t.Fatal("3 km in 15 s without Doppler speed should be a jump")
+	}
+	far.Speed = geo.F(11) // the chip says 40 km/h, so the position is wrong
+	if !IsJump(a, far) {
+		t.Fatal("implied speed far above the Doppler speed should be a jump")
+	}
+	// A real 70 km/h bus: 19 m/s over 15 s, Doppler agrees.
+	ok := geo.Point{TS: t0 + 15_000, Lat: 52.52, Lon: 13.405 + 0.0042, Speed: geo.F(19)}
+	if IsJump(a, ok) {
+		t.Fatal("genuine bus movement flagged as a jump")
+	}
+	// A long silent gap is never judged.
+	late := geo.Point{TS: t0 + 20*minute, Lat: 52.52, Lon: 13.405 + 0.2}
+	if IsJump(a, late) {
+		t.Fatal("a 20 minute gap should not be judged")
+	}
+}
+
+func TestBusJumpIgnored(t *testing.T) {
+	pts := move(t0, 20*minute, 10_000, 52.52, 13.405, 52.52, 13.60)
+	for i := range pts {
+		pts[i].Speed = geo.F(10)
+	}
+	pts[40].Lon += 0.05 // ~3.4 km wrong fix, A->B->C
+	b := run(pts)
+	var d float64
+	for _, tr := range b.Trips {
+		d += tr.Distance
+	}
+	if d > 14500 { // true path is ~13.4 km; the spike would add ~6.8 km
+		t.Fatalf("trip distance %.0f m includes the spike", d)
+	}
+}

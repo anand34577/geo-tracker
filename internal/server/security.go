@@ -121,7 +121,7 @@ func (s *Server) postPoint(w http.ResponseWriter, r *http.Request, u *store.User
 		return
 	}
 	s.hub.Publish(u.ID, "point", map[string]any{"device_id": 0, "point": p})
-	s.checkPointEvents(r.Context(), u.ID, 0, p)
+	s.checkPointEvents(r.Context(), u.ID, 0, []geo.Point{p})
 	s.wake(s.wakeTimeline)
 	writeJSON(w, http.StatusCreated, p)
 }

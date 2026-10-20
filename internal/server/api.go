@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/mail"
@@ -94,8 +95,10 @@ func (s *Server) getPoints(w http.ResponseWriter, r *http.Request, u *store.User
 		return err
 	})
 	if err != nil {
-		internal(w, r, err) // headers are sent; this only logs, the client sees truncated JSON
-		return
+		// Headers and part of the body are already out. Ending cleanly would hand the client valid-looking
+		// but cut-short JSON, so log and abort the connection and let it see a failed request instead.
+		slog.Error("stream points", "path", r.URL.Path, "err", err)
+		panic(http.ErrAbortHandler)
 	}
 	bw.WriteString("]}")
 	bw.Flush()
@@ -193,8 +196,10 @@ func (s *Server) getTimeline(w http.ResponseWriter, r *http.Request, u *store.Us
 		return
 	}
 	out := make([]visitOut, 0, len(visits))
+	var hiddenAt [][2]int64
 	for _, v := range visits {
 		if sv.hidden(v.Lat, v.Lon) {
+			hiddenAt = append(hiddenAt, [2]int64{v.Start, v.End})
 			continue
 		}
 		if sv.approx {
@@ -206,7 +211,22 @@ func (s *Server) getTimeline(w http.ResponseWriter, r *http.Request, u *store.Us
 		}
 		out = append(out, o)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"visits": out, "trips": trips})
+	// A trip that starts or ends inside a privacy zone would reveal when the person left or arrived.
+	const slack = 2 * 60_000
+	shown := trips[:0]
+	for _, t := range trips {
+		hide := false
+		for _, h := range hiddenAt {
+			if (t.Start >= h[0]-slack && t.Start <= h[1]+slack) || (t.End >= h[0]-slack && t.End <= h[1]+slack) {
+				hide = true
+				break
+			}
+		}
+		if !hide {
+			shown = append(shown, t)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"visits": out, "trips": shown})
 }
 
 func (s *Server) rebuildTimeline(w http.ResponseWriter, r *http.Request, u *store.User) {

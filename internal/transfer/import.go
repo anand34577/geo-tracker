@@ -77,6 +77,9 @@ func importZip(r io.ReaderAt, size int64, sink Sink) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if err := checkZipSizes(zr); err != nil {
+		return "", err
+	}
 	hasRecords := false
 	for _, f := range zr.File {
 		switch path.Base(f.Name) {
@@ -97,7 +100,7 @@ func importZip(r io.ReaderAt, size int64, sink Sink) (string, error) {
 		default:
 			continue
 		}
-		rc, err := f.Open()
+		rc, err := openZipEntry(f)
 		if err != nil {
 			return "", err
 		}
@@ -682,7 +685,7 @@ func importNative(zr *zip.Reader, sink Sink) error {
 				}
 			}
 		case "points.ndjson":
-			rc, err := f.Open()
+			rc, err := openZipEntry(f)
 			if err != nil {
 				return err
 			}
@@ -705,10 +708,47 @@ func importNative(zr *zip.Reader, sink Sink) error {
 }
 
 func readJSONEntry(f *zip.File, v any) error {
-	rc, err := f.Open()
+	rc, err := openZipEntry(f)
 	if err != nil {
 		return err
 	}
 	defer rc.Close()
 	return json.NewDecoder(rc).Decode(v)
+}
+
+// Zip bombs: a tiny archive can inflate to terabytes. Entries are read through a limit equal to
+// the size they declare, and the declared totals and compression ratio are capped.
+const (
+	maxZipEntry = int64(32) << 30
+	maxZipTotal = int64(64) << 30
+	maxZipRatio = 1000
+)
+
+func checkZipSizes(zr *zip.Reader) error {
+	var total int64
+	for _, f := range zr.File {
+		size := int64(f.UncompressedSize64)
+		if size < 0 || size > maxZipEntry {
+			return fmt.Errorf("%s: file inside the zip is too large", f.Name)
+		}
+		if total += size; total > maxZipTotal {
+			return errors.New("the zip expands to more data than this server accepts")
+		}
+		if size > 1<<30 && f.CompressedSize64 > 0 && size/int64(f.CompressedSize64) > maxZipRatio {
+			return fmt.Errorf("%s: compression ratio looks like a zip bomb", f.Name)
+		}
+	}
+	return nil
+}
+
+// openZipEntry opens f and refuses to yield more than the size it declared.
+func openZipEntry(f *zip.File) (io.ReadCloser, error) {
+	rc, err := f.Open()
+	if err != nil {
+		return nil, err
+	}
+	return struct {
+		io.Reader
+		io.Closer
+	}{io.LimitReader(rc, int64(f.UncompressedSize64)), rc}, nil
 }

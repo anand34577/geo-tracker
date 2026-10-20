@@ -35,7 +35,8 @@ type Server struct {
 	db           *store.Store
 	hub          *Hub
 	geo          *geocode.Client
-	logins       *limiter
+	logins       *limiter // callers who are not signed in (login, share links): keyed by IP, so floodable
+	quotas       *limiter // signed-in callers (ingest, geocode, invites): keyed by account or device, kept apart so a flood of IPs cannot starve them
 	wakeTimeline chan struct{}
 	wakeImports  chan struct{}
 	wakeExports  chan struct{}
@@ -56,6 +57,7 @@ func New(cfg Config, db *store.Store) *Server {
 		hub:          NewHub(),
 		geo:          &geocode.Client{HTTP: &http.Client{Timeout: 15 * time.Second}, UserAgent: "GeoTracker/" + cfg.Version + " (self-hosted; " + cfg.BaseURL + ")"},
 		logins:       newLimiter(),
+		quotas:       newLimiter(),
 		wakeTimeline: make(chan struct{}, 1),
 		wakeImports:  make(chan struct{}, 1),
 		wakeExports:  make(chan struct{}, 1),
@@ -283,6 +285,15 @@ func (s *Server) clientIP(r *http.Request) string {
 		}
 	}
 	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	return limiterIP(host)
+}
+
+// limiterIP collapses an IPv6 address to its /64: one customer owns a whole /64, so keying on the
+// full address would let a single host mint millions of limiter keys.
+func limiterIP(host string) string {
+	if ip := net.ParseIP(host); ip != nil && ip.To4() == nil {
+		return ip.Mask(net.CIDRMask(64, 128)).String()
+	}
 	return host
 }
 
