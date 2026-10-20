@@ -107,7 +107,7 @@ func (s *Server) inviteMember(w http.ResponseWriter, r *http.Request, u *store.U
 	if !decode(w, r, &req) {
 		return
 	}
-	if !s.logins.allow("invite:"+strconv.FormatInt(u.ID, 10), 20, time.Hour) {
+	if !s.quotas.allow("invite:"+strconv.FormatInt(u.ID, 10), 20, time.Hour) {
 		fail(w, http.StatusTooManyRequests, "too many invitations, try again later")
 		return
 	}

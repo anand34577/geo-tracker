@@ -44,6 +44,33 @@ const (
 	mergeGapMs = 30 * 60 * 1000
 )
 
+// IsJump reports whether moving from a to b is physically implausible, i.e. b is a glitch.
+// Beyond 350 m/s is always a glitch. Otherwise a fix is a jump when the position implies
+// well over 20 m/s while the chip's own Doppler speed says otherwise, or, with no Doppler
+// speed, when it implies more than 85 m/s inside a minute (a bus does not do 300 km/h).
+// Long gaps are never judged: the phone may genuinely have been carried far while silent.
+// The Android recorder applies the same rule (TimelineBuilder.isJump); keep them in step.
+func IsJump(a, b geo.Point) bool {
+	dt := float64(b.TS-a.TS) / 1000
+	if dt <= 0 {
+		return false
+	}
+	implied := geo.Distance(a.Lat, a.Lon, b.Lat, b.Lon) / dt
+	if implied > maxSpeed {
+		return true
+	}
+	if dt < 1 || dt > 300 || implied <= 20 {
+		return false
+	}
+	if (a.Accuracy != nil && *a.Accuracy > 200) || (b.Accuracy != nil && *b.Accuracy > 200) {
+		return false
+	}
+	if b.Speed != nil {
+		return implied > 5*max(*b.Speed, 1)
+	}
+	return dt <= 60 && implied > 85
+}
+
 type Builder struct {
 	P      Params
 	Visits []Visit
@@ -70,7 +97,7 @@ func (b *Builder) Add(p geo.Point) {
 			return
 		}
 		// Reject spikes, but after 3 in a row assume the previous point was the bad one.
-		if geo.Distance(b.last.Lat, b.last.Lon, p.Lat, p.Lon)/dt > maxSpeed && b.rejected < 3 {
+		if IsJump(b.last, p) && b.rejected < 3 {
 			b.rejected++
 			return
 		}

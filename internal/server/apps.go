@@ -86,7 +86,7 @@ func (s *Server) geocodeSearch(w http.ResponseWriter, r *http.Request, u *store.
 		return
 	}
 	// Public geocoders allow ~1 request/second; keep each user well inside that.
-	if !s.logins.allow("geocode:"+strconv.FormatInt(u.ID, 10), 30, time.Minute) {
+	if !s.quotas.allow("geocode:"+strconv.FormatInt(u.ID, 10), 30, time.Minute) {
 		fail(w, http.StatusTooManyRequests, "searching too fast, wait a moment")
 		return
 	}
@@ -125,7 +125,7 @@ func (s *Server) geocodeReverse(w http.ResponseWriter, r *http.Request, u *store
 		writeJSON(w, http.StatusOK, map[string]string{})
 		return
 	}
-	if !s.logins.allow("geocode:"+strconv.FormatInt(u.ID, 10), 30, time.Minute) {
+	if !s.quotas.allow("geocode:"+strconv.FormatInt(u.ID, 10), 30, time.Minute) {
 		fail(w, http.StatusTooManyRequests, "too many lookups, wait a moment")
 		return
 	}

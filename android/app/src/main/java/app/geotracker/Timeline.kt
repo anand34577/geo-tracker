@@ -50,10 +50,9 @@ class TimelineBuilder(
     fun add(p: Fix) {
         if (p.acc != null && p.acc > maxAccuracy) return
         last?.let { l ->
-            val dt = (p.ts - l.ts) / 1000.0
-            if (dt <= 0) return
+            if (p.ts <= l.ts) return
             // Reject spikes, but after 3 in a row assume the previous point was the bad one.
-            if (distance(l.lat, l.lon, p.lat, p.lon) / dt > MAX_SPEED && rejected < 3) {
+            if (isJump(l, p) && rejected < 3) {
                 rejected++
                 return
             }
@@ -143,6 +142,18 @@ class TimelineBuilder(
     }
 
     companion object {
+        /** Same rule as timeline.IsJump on the server; keep the two in step. */
+        fun isJump(a: Fix, b: Fix): Boolean {
+            val dt = (b.ts - a.ts) / 1000.0
+            if (dt <= 0) return false
+            val implied = distance(a.lat, a.lon, b.lat, b.lon) / dt
+            if (implied > MAX_SPEED) return true
+            if (dt < 1 || dt > 300 || implied <= 20) return false
+            if ((a.acc ?: 0.0) > 200 || (b.acc ?: 0.0) > 200) return false
+            val v = b.speed
+            return if (v != null) implied > 5 * maxOf(v, 1.0) else dt <= 60 && implied > 85
+        }
+
         const val MAX_SPEED = 350.0
         const val STILL_SPEED = 1.5
         const val WALK_SPEED = 1.4

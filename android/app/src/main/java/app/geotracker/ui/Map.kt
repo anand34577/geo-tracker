@@ -230,11 +230,15 @@ private fun render(s: Style, d: MapData) {
     })))
 }
 
-fun splitGaps(pts: List<Fix>, gapMs: Long = 30 * 60_000): List<List<Fix>> {
+/**
+ * Breaks the drawn line where the phone went silent for over [gapMs] and the position jumped by
+ * more than 1 km, so an outage (a bus through a tunnel) is not drawn as a made-up straight road.
+ */
+fun splitGaps(pts: List<Fix>, gapMs: Long = 3 * 60_000): List<List<Fix>> {
     val out = ArrayList<List<Fix>>()
     var cur = ArrayList<Fix>()
     for (p in pts) {
-        if (cur.isNotEmpty() && p.ts - cur.last().ts > gapMs && app.geotracker.distance(cur.last().lat, cur.last().lon, p.lat, p.lon) > 2000) {
+        if (cur.isNotEmpty() && p.ts - cur.last().ts > gapMs && app.geotracker.distance(cur.last().lat, cur.last().lon, p.lat, p.lon) > 1000) {
             out += cur; cur = ArrayList()
         }
         cur += p

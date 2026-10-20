@@ -240,7 +240,7 @@ func (s *Server) runAutomations(u *store.User, pl store.Place, event string, p g
 			if a.LastFiredAt != nil && a.LastEvent == event && time.Since(time.UnixMilli(*a.LastFiredAt)) < time.Duration(a.CooldownMin)*time.Minute {
 				continue
 			}
-			if !s.logins.allow("automation:"+strconv.FormatInt(u.ID, 10), 60, time.Hour) {
+			if !s.quotas.allow("automation:"+strconv.FormatInt(u.ID, 10), 60, time.Hour) {
 				slog.Warn("automation rate limit reached", "user", u.ID)
 				return
 			}
@@ -500,7 +500,7 @@ func (s *Server) deleteAutomation(w http.ResponseWriter, r *http.Request, u *sto
 // testAutomation runs the actions once with a sample event so people can check them
 // without leaving the house. It does not touch the cooldown or last-run record.
 func (s *Server) testAutomation(w http.ResponseWriter, r *http.Request, u *store.User) {
-	if !s.logins.allow("automation-test:"+strconv.FormatInt(u.ID, 10), 20, 10*time.Minute) {
+	if !s.quotas.allow("automation-test:"+strconv.FormatInt(u.ID, 10), 20, 10*time.Minute) {
 		fail(w, http.StatusTooManyRequests, "too many tests, wait a few minutes")
 		return
 	}

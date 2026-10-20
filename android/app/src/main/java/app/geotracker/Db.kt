@@ -82,6 +82,9 @@ interface PointDao {
     @Query("SELECT ts, batt FROM points WHERE ts >= :from AND batt IS NOT NULL ORDER BY ts")
     suspend fun battery(from: Long): List<BattSample>
 
+    @Query("DELETE FROM points")
+    suspend fun deleteAll()
+
     @Query("DELETE FROM points WHERE ts >= :from AND ts < :to")
     suspend fun delete(from: Long, to: Long): Int
 }

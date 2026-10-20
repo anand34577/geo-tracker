@@ -62,6 +62,8 @@ func (s *Server) ingest(kind string) http.HandlerFunc {
 				return
 			}
 		}
+		// A phone on a bad link may trickle a body; do not let it hold a connection open for minutes.
+		_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(60 * time.Second))
 		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 10<<20))
 		if err != nil {
 			fail(w, http.StatusRequestEntityTooLarge, "payload too large")
@@ -112,7 +114,7 @@ func (s *Server) ingest(kind string) http.HandlerFunc {
 		}
 
 		// A leaked token must not be able to flood the database; real apps send a few requests a minute.
-		if !s.logins.allow("ingest:"+strconv.FormatInt(deviceID, 10), 600, time.Minute) {
+		if !s.quotas.allow("ingest:"+strconv.FormatInt(deviceID, 10), 600, time.Minute) {
 			w.Header().Set("Retry-After", "60")
 			fail(w, http.StatusTooManyRequests, "too many uploads, slow down")
 			return
@@ -140,7 +142,7 @@ func (s *Server) ingest(kind string) http.HandlerFunc {
 			}
 			battery = latest.Battery
 			s.hub.Publish(userID, "point", map[string]any{"device_id": deviceID, "point": latest})
-			s.checkPointEvents(r.Context(), userID, deviceID, latest)
+			s.checkPointEvents(r.Context(), userID, deviceID, valid)
 		}
 		if err := s.db.TouchDevice(r.Context(), deviceID, battery); err != nil {
 			slog.Warn("touch device", "err", err)
