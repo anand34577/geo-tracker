@@ -9,20 +9,30 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.hardware.Sensor
+import android.hardware.SensorManager
+import android.hardware.TriggerEvent
+import android.hardware.TriggerEventListener
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.location.LocationRequest
 import android.os.BatteryManager
+import android.os.Build
 import android.os.Looper
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 data class TrackState(
@@ -34,22 +44,25 @@ data class TrackState(
     val dropped: Int = 0,
     /** Running, but the phone's location switch is off so nothing can be recorded. */
     val locationOff: Boolean = false,
+    /** Why the most recent dropped fix was dropped, for diagnosing odd tracks. */
+    val lastDrop: Verdict? = null,
 )
 
 /**
- * Foreground GPS recorder. Precision rules, in order: drop fixes worse than the accuracy limit,
- * drop impossible jumps (> 350 m/s, same rule as the server), prefer GPS over network fixes,
- * then thin by distance. While stationary it slows down to save battery and speeds up again
- * as soon as you move.
+ * Foreground GPS recorder. One location source only (the OS fused provider where there is one,
+ * else GPS; network only on a phone with no GPS), because mixing sources is what makes a track
+ * zig-zag when GPS degrades. The accept/reject rules live in [FixGate]. While stationary it slows
+ * down to save battery and speeds up again as soon as the motion sensor or a fix says you moved.
  */
 class TrackingService : Service(), LocationListener {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var lm: LocationManager
     private val prefs get() = App.prefs
 
-    private var lastSaved: Fix? = null
-    private var lastGpsAt = 0L
-    private var spikes = 0
+    private val gate = FixGate({ prefs.maxAccuracy.toDouble() }, { prefs.minDistance.toDouble() }, { prefs.stillInterval })
+    private var lastFixAt = 0L // elapsedRealtime of the last delivery from the provider
+    private var watchdog: Job? = null
+    private var motionListener: TriggerEventListener? = null
     private var anchor: Fix? = null // where we've been sitting still since
     private var moving = true
     private var places: List<PlaceRow> = emptyList()
@@ -81,31 +94,94 @@ class TrackingService : Service(), LocationListener {
         }
         state.value = state.value.copy(running = true)
         request()
+        startWatchdog()
         notify(notification())
         return START_STICKY
+    }
+
+    /** The one provider to listen to: fused (Android 12+) > GPS > network (phones without GPS). */
+    private fun pickProvider(): String? {
+        val on = lm.getProviders(true)
+        return when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && LocationManager.FUSED_PROVIDER in on -> LocationManager.FUSED_PROVIDER
+            LocationManager.GPS_PROVIDER in on -> LocationManager.GPS_PROVIDER
+            LocationManager.NETWORK_PROVIDER in on -> LocationManager.NETWORK_PROVIDER
+            else -> null
+        }
     }
 
     @Suppress("MissingPermission")
     private fun request() {
         lm.removeUpdates(this)
-        val ms = effectiveInterval() * 1000L
-        val providers = lm.getProviders(true)
-        val off = LocationManager.GPS_PROVIDER !in providers && LocationManager.NETWORK_PROVIDER !in providers
+        val provider = pickProvider()
+        val off = provider == null
         if (off != state.value.locationOff) state.value = state.value.copy(locationOff = off)
-        // The distance filter is applied in accept(), not by the provider: a provider-side filter
+        armMotionWake()
+        if (provider == null) return
+        val ms = effectiveInterval() * 1000L
+        // The distance filter is applied in FixGate, not by the provider: a provider-side filter
         // goes completely silent while you stand still, so the quiet-period heartbeat never ran.
-        if (LocationManager.GPS_PROVIDER in providers)
-            lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, ms, 0f, this, Looper.getMainLooper())
-        // Network fixes keep stays alive indoors where GPS can't see the sky.
-        if (LocationManager.NETWORK_PROVIDER in providers)
-            lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, maxOf(ms, 30_000L), 0f, this, Looper.getMainLooper())
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                // The plain overload runs at balanced power on Android 12+ and may never engage GNSS.
+                val req = LocationRequest.Builder(ms).setQuality(LocationRequest.QUALITY_HIGH_ACCURACY).setMinUpdateDistanceMeters(0f).build()
+                lm.requestLocationUpdates(provider, req, mainExecutor, this)
+            } else {
+                lm.requestLocationUpdates(provider, ms, 0f, this, Looper.getMainLooper())
+            }
+        }.onFailure {
+            // The provider vanished or the permission went mid-call; the watchdog retries.
+            state.value = state.value.copy(locationOff = true)
+        }
+        lastFixAt = SystemClock.elapsedRealtime()
+    }
+
+    /** While stationary, wake on the accelerometer's significant-motion trigger instead of waiting out a slow interval. */
+    private fun armMotionWake() {
+        val sm = getSystemService(SensorManager::class.java) ?: return
+        val sensor = sm.getDefaultSensor(Sensor.TYPE_SIGNIFICANT_MOTION) ?: return
+        motionListener?.let { sm.cancelTriggerSensor(it, sensor) }
+        motionListener = null
+        if (moving || !prefs.adaptive) return
+        val l = object : TriggerEventListener() {
+            override fun onTrigger(event: TriggerEvent?) {
+                motionListener = null
+                if (!moving) {
+                    moving = true
+                    anchor = null
+                    state.value = state.value.copy(moving = true)
+                    request()
+                }
+            }
+        }
+        if (sm.requestTriggerSensor(l, sensor)) motionListener = l
+    }
+
+    /**
+     * Phones kill or silence location in the background more than they admit. If the provider has
+     * gone quiet for much longer than the interval, ask again; if the location switch came back on, resume.
+     */
+    private fun startWatchdog() {
+        watchdog?.cancel()
+        watchdog = scope.launch {
+            while (isActive) {
+                delay(60_000)
+                val quiet = SystemClock.elapsedRealtime() - lastFixAt
+                if (quiet > 3L * effectiveInterval() * 1000 + 60_000 || state.value.locationOff) {
+                    request()
+                    notify(notification())
+                }
+            }
+        }
     }
 
     override fun onLocationChanged(l: Location) {
-        val now = l.time
-        val isGps = l.provider == LocationManager.GPS_PROVIDER
-        if (isGps) lastGpsAt = now
-        else if (now - lastGpsAt < 3L * effectiveInterval() * 1000) return // GPS is working; ignore coarser fixes
+        lastFixAt = SystemClock.elapsedRealtime()
+        // Fixes can be delivered late (a queue after the screen was off). Judge their real age, and
+        // stamp them with when they were taken, not with the possibly wrong provider clock.
+        val ageMs = (SystemClock.elapsedRealtimeNanos() - l.elapsedRealtimeNanos) / 1_000_000
+        if (ageMs > STALE_MS) return
+        val now = System.currentTimeMillis() - maxOf(0L, ageMs)
 
         val fix = Fix(
             ts = now, lat = l.latitude, lon = l.longitude,
@@ -115,36 +191,30 @@ class TrackingService : Service(), LocationListener {
             bearing = if (l.hasBearing()) l.bearing.toDouble() else null,
             batt = getSystemService(BatteryManager::class.java).getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).takeIf { it in 0..100 },
         )
-        if (accept(fix)) {
-            lastSaved = fix
+        val verdict = gate.check(fix)
+        if (verdict == Verdict.KEEP) {
+            gate.commit(fix)
             val zone = places.firstOrNull { it.pause && distance(it.lat, it.lon, fix.lat, fix.lon) <= it.radius }
             state.value = state.value.copy(last = fix, paused = zone?.name, accepted = state.value.accepted + if (zone == null) 1 else 0)
             if (zone == null) scope.launch {
-                App.db.points().insert(PointRow(fix.ts, fix.lat, fix.lon, fix.acc, fix.alt, fix.speed, fix.bearing, fix.batt))
-                if (prefs.connected && prefs.syncEvery == 0) Sync.now(this@TrackingService)
+                runCatching {
+                    App.db.points().insert(PointRow(fix.ts, fix.lat, fix.lon, fix.acc, fix.alt, fix.speed, fix.bearing, fix.batt))
+                    if (prefs.connected && prefs.syncEvery == 0) Sync.now(this@TrackingService)
+                }
             }
         } else {
-            state.value = state.value.copy(dropped = state.value.dropped + 1)
+            state.value = state.value.copy(dropped = state.value.dropped + 1, lastDrop = verdict)
         }
-        if (fix.acc == null || fix.acc <= prefs.maxAccuracy) adapt(fix)
+        if (verdict != Verdict.ACCURACY && verdict != Verdict.JUMP) adapt(fix)
         notify(notification())
     }
 
-    /** Seconds between GPS fixes right now: slower while stationary, when saving battery. */
-    private fun effectiveInterval() = if (moving || !prefs.adaptive) prefs.interval else prefs.stillInterval
-
-    private fun accept(f: Fix): Boolean {
-        if (f.acc != null && f.acc > prefs.maxAccuracy) return false
-        val prev = lastSaved ?: return true
-        val dt = (f.ts - prev.ts) / 1000.0
-        if (dt <= 0) return false
-        val d = distance(prev.lat, prev.lon, f.lat, f.lon)
-        if (d / dt > TimelineBuilder.MAX_SPEED && spikes < 3) {
-            spikes++; return false
-        }
-        spikes = 0
-        // Distance filter, but never stay silent longer than the stationary interval.
-        return d >= prefs.minDistance || dt >= prefs.stillInterval
+    /** Seconds between fixes right now: slower while stationary, when saving battery. */
+    private fun effectiveInterval(): Int {
+        if (moving || !prefs.adaptive) return prefs.interval
+        // Without a motion sensor to wake us, a long stationary interval would hide the start of a trip.
+        val canWake = motionListener != null
+        return if (canWake) prefs.stillInterval else minOf(prefs.stillInterval, 30)
     }
 
     /** Stationary = within 30 m (or the fix accuracy) of one spot for 3 minutes without speed. */
@@ -194,17 +264,23 @@ class TrackingService : Service(), LocationListener {
 
     override fun onDestroy() {
         lm.removeUpdates(this)
+        getSystemService(SensorManager::class.java)?.let { sm ->
+            val s = sm.getDefaultSensor(Sensor.TYPE_SIGNIFICANT_MOTION)
+            motionListener?.let { if (s != null) sm.cancelTriggerSensor(it, s) }
+        }
         scope.cancel()
         state.value = state.value.copy(running = false, locationOff = false)
         super.onDestroy()
     }
 
-    // Re-evaluates which providers are usable and refreshes the notification (location switched off/on).
+    // Re-evaluates which provider to use and refreshes the notification (location switched off/on).
     override fun onProviderEnabled(provider: String) { request(); notify(notification()) }
     override fun onProviderDisabled(provider: String) { request(); notify(notification()) }
 
     companion object {
         private const val ACTION_STOP = "stop"
+        /** A fix older than this was queued by the OS and no longer describes where we are. */
+        private const val STALE_MS = 5 * 60_000L
         val state = MutableStateFlow(TrackState())
 
         /** True when the phone's location switch is on (any provider). */

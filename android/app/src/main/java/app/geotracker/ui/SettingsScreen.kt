@@ -83,6 +83,10 @@ private fun Connect() {
             runCatching {
                 withContext(Dispatchers.IO) { Api.login(url, email.trim(), password, "${Build.MANUFACTURER} ${Build.MODEL}".trim().take(60)) }
             }.onSuccess { r ->
+                // A different account must not inherit (or upload) the previous account's points.
+                val owner = url + "|" + email.trim().lowercase()
+                if (App.prefs.dataOwner.isNotEmpty() && App.prefs.dataOwner != owner) App.db.points().deleteAll()
+                App.prefs.dataOwner = owner
                 App.prefs.server = url
                 App.prefs.token = r.getString("token")
                 App.prefs.deviceId = r.getJSONObject("device").getLong("id")
@@ -155,12 +159,15 @@ private fun Account() {
     if (confirm) AlertDialog(
         onDismissRequest = { confirm = false },
         title = { Text("Sign out?") },
-        text = { Text("This phone stops uploading and its access token is revoked on the server. If the server can't be reached, remove this phone under Settings → Devices on the web. Everything recorded stays on this phone and on your server.") },
+        text = { Text("This phone stops uploading and its access token is revoked on the server. If the server can't be reached, remove this phone under Settings → Devices on the web. Everything recorded stays on this phone and on your server. Signing in as a different account clears this phone's copy first.") },
         confirmButton = {
             TextButton({
                 confirm = false
                 scope.launch {
-                    withContext(Dispatchers.IO) { Api.signOut() }
+                    withContext(Dispatchers.IO) {
+                        runCatching { Sync.flush() } // best effort: hand over anything still queued before the token goes
+                        Api.signOut()
+                    }
                     App.db.places().clearRemote()
                     App.prefs.signOut()
                     Sync.schedule(ctx)

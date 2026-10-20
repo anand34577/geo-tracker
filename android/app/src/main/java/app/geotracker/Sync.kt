@@ -39,7 +39,8 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
 object Sync {
     private const val WEEK = 7 * 86_400_000L
 
-    suspend fun run() {
+    /** Uploads everything still queued, nothing else. Used before sign-out so no fix is stranded. */
+    suspend fun flush() {
         val dao = App.db.points()
         while (true) {
             val batch = dao.unsynced(500) // markSynced binds one variable per row; SQLite before Android 11 allows 999
@@ -47,6 +48,11 @@ object Sync {
             Api.upload(batch)
             dao.markSynced(batch.map { it.ts })
         }
+    }
+
+    suspend fun run() {
+        val dao = App.db.points()
+        flush()
         App.prefs.lastSync = System.currentTimeMillis()
 
         val now = System.currentTimeMillis()

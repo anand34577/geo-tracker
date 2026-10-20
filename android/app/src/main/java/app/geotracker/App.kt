@@ -28,6 +28,8 @@ class App : Application() {
             NotificationChannel(CHANNEL, "Location tracking", NotificationManager.IMPORTANCE_LOW)
         )
         Sync.schedule(this)
+        // The process can be revived (sync, boot, update) after the OS killed the recorder; bring it back.
+        if (prefs.tracking && !TrackingService.state.value.running) runCatching { TrackingService.start(this) }
     }
 
     companion object {
@@ -126,6 +128,11 @@ class Prefs(ctx: Context) {
     var units: String // metric | imperial
         get() = read { p.getString("units", "metric")!! }
         set(v) = put { putString("units", v) }
+
+    /** Whose history the points table holds (server + email), so another account never inherits it. */
+    var dataOwner: String
+        get() = read { p.getString("dataOwner", "")!! }
+        set(v) = put { putString("dataOwner", v) }
 
     fun signOut() {
         secret.edit { clear() }
