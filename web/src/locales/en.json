@@ -458,6 +458,7 @@
     "runtime": "Runtime",
     "httpsWarning": "This server is reached over plain HTTP. Put it behind a reverse proxy with HTTPS (see the hosting guide) and set GT_BASE_URL.",
     "noBackupWarning": "No backups yet. Create one now; scheduled backups run daily.",
+    "ssrfWarning": "This server has several accounts, but webhooks, notification services and Immich can still be pointed at addresses on this machine's own network (LAN, loopback). If your members don't need integrations inside that network, set GT_BLOCK_PRIVATE_TARGETS=true and restart GeoTracker.",
     "backups": "Backups",
     "backupsDesc": "Snapshots of the whole database. Copy them off this machine too (restic, rclone, a NAS).",
     "backupNow": "Back up now",
