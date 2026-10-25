@@ -43,7 +43,7 @@ android {
     }
     kotlin { jvmToolchain(17) }
     buildFeatures { compose = true }
-    lint { abortOnError = false }
+    lint { abortOnError = true }
 }
 
 // Room writes each schema version here; commit them so migrations can be tested against real history.

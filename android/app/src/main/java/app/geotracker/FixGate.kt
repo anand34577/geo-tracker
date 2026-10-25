@@ -16,13 +16,25 @@ class FixGate(
     var lastSaved: Fix? = null
         private set
     private var spikes = 0
+    private var stale = 0
 
     fun check(f: Fix): Verdict {
         if (f.acc != null && f.acc > maxAccuracy()) return Verdict.ACCURACY
         val prev = lastSaved ?: return Verdict.KEEP
         if (f.ts == prev.ts && f.lat == prev.lat && f.lon == prev.lon) return Verdict.DUPLICATE
         val dt = (f.ts - prev.ts) / 1000.0
-        if (dt <= 0) return Verdict.OUT_OF_ORDER
+        if (dt <= 0) {
+            // A backwards clock correction (NTP resync after being offline, a manual set) makes
+            // every new fix "older" than the saved one. After three in a row the saved timestamp
+            // is the wrong anchor: accept the fix, exactly like the JUMP recovery below.
+            if (stale < 3) {
+                stale++
+                return Verdict.OUT_OF_ORDER
+            }
+            stale = 0
+            return Verdict.KEEP
+        }
+        stale = 0
         // After 3 rejections in a row the saved fix is probably the wrong one, so let this through.
         if (TimelineBuilder.isJump(prev, f) && spikes < 3) {
             spikes++

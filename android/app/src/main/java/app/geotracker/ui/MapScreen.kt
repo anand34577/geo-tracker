@@ -88,7 +88,7 @@ fun MapScreen(dark: Boolean, openDay: (LocalDate) -> Unit) {
         // Status card
         Column(Modifier.fillMaxWidth().statusBarsPadding().padding(12.dp)) {
             StatusCard(track.running, track.paused, track.moving, me, queued, connected, todayDist, today.size) { openDay(LocalDate.now()) }
-            AttentionBanner(ready, track.running)
+            AttentionBanner(ready, track.running, track.waiting)
         }
 
         // Map controls
@@ -337,13 +337,16 @@ fun rememberReadiness(): Readiness {
 
 /** One actionable line when recording can't work (or won't survive the screen turning off). */
 @Composable
-private fun AttentionBanner(ready: Readiness, running: Boolean) {
+private fun AttentionBanner(ready: Readiness, running: Boolean, waiting: Boolean = false) {
     val ctx = LocalContext.current
     fun open(action: String, uri: android.net.Uri? = null) {
         runCatching { ctx.startActivity(android.content.Intent(action, uri)) }
     }
     val appSettings = { open(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:${ctx.packageName}")) }
+    val resume: () -> Unit = { TrackingService.start(ctx) } // the Boolean result is meaningless here
     val (text, action, go) = when {
+        waiting && !running ->
+            Triple("Android stopped recording when it restarted GeoTracker in the background. Resume to continue.", "Resume", resume)
         !ready.permission -> Triple("Location permission is off. GeoTracker can't record without it.", "Allow", appSettings)
         !ready.locationOn -> Triple(
             if (running) "Location is turned off, so nothing is being recorded." else "Location is turned off. Turn it on to record.",

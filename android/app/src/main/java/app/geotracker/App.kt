@@ -134,6 +134,11 @@ class Prefs(ctx: Context) {
         get() = read { p.getString("dataOwner", "")!! }
         set(v) = put { putString("dataOwner", v) }
 
+    /** Public http server hosts the user explicitly allowed; LAN addresses never need approval. */
+    var insecureHosts: Set<String>
+        get() = read { p.getStringSet("insecureHosts", emptySet())!! }
+        set(v) = put { putStringSet("insecureHosts", v) }
+
     fun signOut() {
         secret.edit { clear() }
         put { remove("deviceId"); remove("userName"); remove("pulledTo"); remove("lastSync"); remove("syncError") }

@@ -39,6 +39,17 @@ class FixGateTest {
     }
 
     @Test
+    fun clockRollbackRecoversAfterThreeOutOfOrderFixes() {
+        val g = gate()
+        feed(g, fix(100))
+        // The phone's clock was corrected backwards: everything now arrives "before" the saved fix.
+        val v = (1..4).map { feed(g, fix(100 - it * 10L, 0.0001 * it)) }
+        assertEquals(listOf(Verdict.OUT_OF_ORDER, Verdict.OUT_OF_ORDER, Verdict.OUT_OF_ORDER, Verdict.KEEP), v)
+        // Recording continues against the new (earlier) clock.
+        assertEquals(Verdict.KEEP, feed(g, fix(100 - 20 + 15, 0.001)))
+    }
+
+    @Test
     fun thinsByDistanceButHeartbeatsWhenStill() {
         val g = FixGate({ 50.0 }, { 20.0 }, { 120 })
         feed(g, fix(0))
