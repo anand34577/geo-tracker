@@ -188,6 +188,8 @@ export type System = {
   https: boolean;
   last_backup: Backup | null;
   backups: number;
+  /** GT_BLOCK_PRIVATE_TARGETS: whether member-configured outbound URLs may reach loopback/LAN. */
+  outbound_private_blocked: boolean;
 };
 export type PointStats = { count: number; first: number | null; last: number | null };
 

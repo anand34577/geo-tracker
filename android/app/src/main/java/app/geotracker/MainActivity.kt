@@ -117,4 +117,11 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        // A background start can have been refused while the app was gone (Android 12+); with the
+        // app in the foreground starting is always allowed, so tracking picks back up here.
+        if (App.prefs.tracking && !TrackingService.state.value.running) TrackingService.start(this)
+    }
 }

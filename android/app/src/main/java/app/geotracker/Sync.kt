@@ -10,6 +10,9 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.TimeUnit
 
 /**
@@ -29,6 +32,8 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             val revoked = e.status == 401 || e.status == 403
             prefs.syncError = if (revoked) "The server no longer accepts this phone. Sign out and sign in again." else e.message ?: "Sync failed"
             if (revoked) Result.failure() else Result.retry()
+        } catch (e: CancellationException) {
+            throw e // WorkManager stopped this worker; retrying would fight the cancellation
         } catch (e: Exception) {
             prefs.syncError = e.message ?: "Server unreachable"
             Result.retry()
@@ -39,8 +44,14 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
 object Sync {
     private const val WEEK = 7 * 86_400_000L
 
+    // The periodic chain and the per-fix "now" chain are separate unique works, so two of them
+    // can wake at once. This keeps a second run from re-uploading the batch the first is on.
+    private val running = Mutex()
+
     /** Uploads everything still queued, nothing else. Used before sign-out so no fix is stranded. */
-    suspend fun flush() {
+    suspend fun flush() = running.withLock { flushLocked() }
+
+    private suspend fun flushLocked() {
         val dao = App.db.points()
         while (true) {
             val batch = dao.unsynced(500) // markSynced binds one variable per row; SQLite before Android 11 allows 999
@@ -51,28 +62,33 @@ object Sync {
     }
 
     suspend fun run() {
-        val dao = App.db.points()
-        flush()
-        App.prefs.lastSync = System.currentTimeMillis()
+        if (!running.tryLock()) return // already syncing; that pass uploads our queue too
+        try {
+            val dao = App.db.points()
+            flushLocked()
+            App.prefs.lastSync = System.currentTimeMillis()
 
-        val now = System.currentTimeMillis()
-        // "Upload every fix" runs this per fix; mirroring the server's history can wait.
-        if (now - App.prefs.pulledTo < 10 * 60_000L) return
-        // Overlap a few hours: other phones may upload late.
-        var from = App.prefs.pulledTo.takeIf { it > 0 }?.minus(6 * 3_600_000L) ?: (Api.firstPoint() ?: now)
-        var span = WEEK
-        while (from < now) {
-            val to = minOf(from + span, now)
-            val (pts, step) = Api.points(from, to)
-            if (step > 1 && span > 3_600_000L) { // the server thinned it: fetch a shorter window instead
-                span /= 4; continue
+            val now = System.currentTimeMillis()
+            // "Upload every fix" runs this per fix; mirroring the server's history can wait.
+            if (now - App.prefs.pulledTo < 10 * 60_000L) return
+            // Overlap a few hours: other phones may upload late.
+            var from = App.prefs.pulledTo.takeIf { it > 0 }?.minus(6 * 3_600_000L) ?: (Api.firstPoint() ?: now)
+            var span = WEEK
+            while (from < now) {
+                val to = minOf(from + span, now)
+                val (pts, step) = Api.points(from, to)
+                if (step > 1 && span > 3_600_000L) { // the server thinned it: fetch a shorter window instead
+                    span /= 4; continue
+                }
+                dao.insertAll(pts)
+                App.prefs.pulledTo = to
+                from = to
+                span = WEEK
             }
-            dao.insertAll(pts)
-            App.prefs.pulledTo = to
-            from = to
-            span = WEEK
+            Repo.refreshPlaces()
+        } finally {
+            running.unlock()
         }
-        Repo.refreshPlaces()
     }
 
     private fun constraints() = Constraints.Builder()

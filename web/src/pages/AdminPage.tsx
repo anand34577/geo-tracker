@@ -208,6 +208,7 @@ function SystemTab() {
           <div className="space-y-4">
             {!s.https && <Notice tone="warning">{t("admin.httpsWarning")}</Notice>}
             {!s.last_backup && <Notice tone="warning">{t("admin.noBackupWarning")}</Notice>}
+            {s.counts.users > 1 && !s.outbound_private_blocked && <Notice tone="warning">{t("admin.ssrfWarning")}</Notice>}
             <dl className="grid grid-cols-2 gap-x-6 gap-y-4 text-sm sm:grid-cols-3">
               <Info label={t("admin.version")} value={s.version} />
               <Info label={t("admin.runningSince")} value={dateTime(s.started, clock)} />

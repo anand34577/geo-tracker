@@ -44,6 +44,11 @@ data class TrackState(
     val dropped: Int = 0,
     /** Running, but the phone's location switch is off so nothing can be recorded. */
     val locationOff: Boolean = false,
+    /**
+     * Tracking is on, but Android refused to start the service from the background (the process
+     * was revived by a sync, not by a boot or an update). It resumes when the app opens.
+     */
+    val waiting: Boolean = false,
     /** Why the most recent dropped fix was dropped, for diagnosing odd tracks. */
     val lastDrop: Verdict? = null,
 )
@@ -65,7 +70,7 @@ class TrackingService : Service(), LocationListener {
     private var motionListener: TriggerEventListener? = null
     private var anchor: Fix? = null // where we've been sitting still since
     private var moving = true
-    private var places: List<PlaceRow> = emptyList()
+    @Volatile private var places: List<PlaceRow> = emptyList() // written by a DB flow on IO, read on main
 
     override fun onBind(intent: Intent?) = null
 
@@ -86,13 +91,23 @@ class TrackingService : Service(), LocationListener {
             if (allowed) ServiceCompat.startForeground(this, 1, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
             else startForeground(1, notification())
         }.isSuccess
-        if (!allowed || !started) {
+        if (!allowed) {
             prefs.tracking = false
+            state.value = state.value.copy(waiting = false)
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
         }
-        state.value = state.value.copy(running = true)
+        if (!started) {
+            // Android 12+ refuses a location foreground service started from the background (the
+            // process was revived by a sync, not by boot/update). Recording is still wanted: keep
+            // the setting and resume in MainActivity.onResume instead of silently turning it off.
+            state.value = state.value.copy(waiting = true)
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        state.value = state.value.copy(running = true, waiting = false)
         request()
         startWatchdog()
         notify(notification())
@@ -253,6 +268,8 @@ class TrackingService : Service(), LocationListener {
             .addAction(0, "Stop", stop)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            // The text names places and accuracy; the lock screen only shows that we record.
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
     }
@@ -300,6 +317,7 @@ class TrackingService : Service(), LocationListener {
 
         fun stop(ctx: Context) {
             App.prefs.tracking = false
+            state.value = state.value.copy(waiting = false)
             ctx.stopService(Intent(ctx, TrackingService::class.java))
             if (App.prefs.connected) Sync.now(ctx) // flush what's queued
         }

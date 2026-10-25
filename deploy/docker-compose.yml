@@ -10,7 +10,9 @@ services:
     restart: unless-stopped # also applies restores started from the UI
     env_file: .env
     environment:
-      GT_TRUSTED_PROXIES: 172.16.0.0/12 # Docker networks; lets GeoTracker see real client IPs
+      # Only the fixed network below is trusted to set X-Forwarded-For: any container
+      # you later attach must not be able to spoof client addresses.
+      GT_TRUSTED_PROXIES: 172.28.0.0/29
     volumes:
       - ./data:/data # database, backups, uploads: back up this folder
     # No ports: only Caddy is exposed. For a LAN-only test instead, remove Caddy and add:
@@ -27,6 +29,12 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
     depends_on: [geotracker]
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/29 # the range GT_TRUSTED_PROXIES above is pinned to
 
 volumes:
   caddy_data:

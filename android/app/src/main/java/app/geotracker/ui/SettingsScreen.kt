@@ -72,8 +72,12 @@ private fun Connect() {
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val normalized = Api.normalizeServer(server)
-    val insecure = normalized != null && normalized.startsWith("http://") && !isPrivateHost(normalized)
-    val ready = !busy && normalized != null && email.isNotBlank() && password.isNotEmpty()
+    val host = normalized?.let { Uri.parse(it).host?.lowercase() }
+    val insecureHost = normalized != null && normalized.startsWith("http://") && !isPrivateHost(normalized)
+    // Plain http to a public server needs an explicit once-per-host OK: the token, the password
+    // and every location fix would otherwise cross the network unencrypted, warning or not.
+    val allowed = host == null || !insecureHost || App.prefs.insecureHosts.contains(host)
+    val ready = !busy && normalized != null && allowed && email.isNotBlank() && password.isNotEmpty()
 
     fun signIn() {
         val url = normalized ?: return
@@ -109,8 +113,16 @@ private fun Connect() {
                     keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
                 keyboardActions = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Down) }),
                 shape = RoundedCornerShape(14.dp))
-            if (insecure) Text("This address isn't encrypted. Use https:// for a server on the internet.", color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall)
+            if (insecureHost && !allowed) {
+                Column {
+                    Text("This address isn't encrypted. Passwords and your location would travel openly over the internet. Use https:// if you can.",
+                        color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    TextButton({ host?.let { App.prefs.insecureHosts = App.prefs.insecureHosts + it } }) { Text("Use this address anyway") }
+                }
+            } else if (insecureHost) {
+                Text("This address isn't encrypted; you allowed it. Passwords and locations travel openly.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+            }
             OutlinedTextField(email, { email = it }, Modifier.fillMaxWidth(), label = { Text("Email") }, singleLine = true,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false,
                     keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
@@ -129,10 +141,16 @@ private fun Connect() {
     }
 }
 
+/** A host cleartext http is acceptable for without an explicit OK: the device's own networks. */
 private fun isPrivateHost(url: String): Boolean {
-    val host = Uri.parse(url).host ?: return false
-    return host == "localhost" || host.endsWith(".local") || host.endsWith(".lan") || host.startsWith("10.") ||
-        host.startsWith("192.168.") || Regex("^172\\.(1[6-9]|2\\d|3[01])\\.").containsMatchIn(host) || host.startsWith("100.")
+    val host = Uri.parse(url).host?.lowercase() ?: return false
+    return if (host.contains(":")) { // IPv6: loopback, link-local, unique-local
+        host == "::1" || host.startsWith("fe80:") || host.startsWith("fc") || host.startsWith("fd")
+    } else {
+        host == "localhost" || host.endsWith(".local") || host.endsWith(".lan") || host.endsWith(".home") || host.endsWith(".internal") ||
+            host.startsWith("10.") || host.startsWith("192.168.") || host.startsWith("127.") || host.startsWith("169.254.") ||
+            Regex("^172\\.(1[6-9]|2\\d|3[01])\\.").containsMatchIn(host) || host.startsWith("100.")
+    }
 }
 
 @Composable

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -112,7 +113,9 @@ func (s *Server) oidcLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	c, err := s.oidcClient(r, st)
 	if err != nil {
-		loginError(w, r, "Single sign-on is unavailable: "+err.Error())
+		// Provider URLs and transport details belong in the log, not the browser redirect.
+		slog.Error("oidc: client setup", "err", err)
+		loginError(w, r, "Single sign-on is not configured correctly. Ask your administrator to check the settings.")
 		return
 	}
 	state := oidcState{State: newToken(), Nonce: newToken(), Verifier: oauth2.GenerateVerifier(), Next: safeNext(r.URL.Query().Get("next"))}
@@ -150,12 +153,14 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	c, err := s.oidcClient(r, st)
 	if err != nil {
-		loginError(w, r, err.Error())
+		slog.Error("oidc: client setup", "err", err)
+		loginError(w, r, "Single sign-on is not configured correctly. Ask your administrator to check the settings.")
 		return
 	}
 	tok, err := c.cfg.Exchange(ctx, q.Get("code"), oauth2.VerifierOption(state.Verifier))
 	if err != nil {
-		loginError(w, r, "The identity provider rejected the sign-in: "+err.Error())
+		slog.Error("oidc: token exchange", "err", err)
+		loginError(w, r, "The identity provider rejected the sign-in. Please try again.")
 		return
 	}
 	raw, _ := tok.Extra("id_token").(string)

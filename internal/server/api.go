@@ -22,6 +22,7 @@ import (
 
 	"geotracker/internal/geo"
 	"geotracker/internal/maps"
+	"geotracker/internal/notify"
 	"geotracker/internal/store"
 	"geotracker/internal/transfer"
 )
@@ -816,6 +817,9 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request, _ *store.User) {
 		"https":       strings.HasPrefix(s.baseURL(r), "https://"),
 		"last_backup": last,
 		"backups":     len(backups),
+		// Whether webhooks, notification services and Immich may reach loopback/LAN
+		// addresses (GT_BLOCK_PRIVATE_TARGETS). The admin UI warns when it should be on.
+		"outbound_private_blocked": notify.BlockPrivate.Load(),
 	})
 }
 
