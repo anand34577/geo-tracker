@@ -34,7 +34,26 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.importLoop(ctx)
 	go s.exportLoop(ctx)
 	go s.maintenanceLoop(ctx)
+	go s.limiterSweep(ctx)
 	return nil
+}
+
+// limiterSweep drops keys that no longer have a hit inside their window, so a flood of
+// junk keys (an address-rotating attacker) ages out even when no new key arrives to
+// trigger the on-demand sweep inside allow(). Keys with live hits are never dropped.
+func (s *Server) limiterSweep(ctx context.Context) {
+	tick := time.NewTicker(5 * time.Minute)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+		cutoff := time.Now().Add(-time.Hour) // longer than the longest window in use
+		s.logins.sweep(cutoff)
+		s.quotas.sweep(cutoff)
+	}
 }
 
 func (s *Server) wake(ch chan struct{}) {

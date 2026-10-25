@@ -254,7 +254,7 @@ func (s *Server) loginAllowed(r *http.Request, email string) bool {
 	ip := s.clientIP(r)
 	return s.logins.allow("ip:"+ip, 20, 15*time.Minute) &&
 		s.logins.allow("pair:"+ip+"|"+email, 10, 15*time.Minute) &&
-		s.logins.allow("email:"+email, 100, 15*time.Minute)
+		s.logins.allow("email:"+email, 50, 15*time.Minute)
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {

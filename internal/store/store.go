@@ -48,6 +48,14 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 		return nil, fmt.Errorf("restore: %w", err)
 	}
 	p := filepath.Join(dir, dbFile)
+	// The database holds location history, password hashes and session hashes: create it
+	// owner-only, and tighten files left over from older versions (umask is usually 022).
+	if f, err := os.OpenFile(p, os.O_RDWR|os.O_CREATE, 0o600); err == nil {
+		f.Close()
+	}
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		os.Chmod(p+suffix, 0o600)
+	}
 	w, err := sql.Open("sqlite", p+pragmas+"&_txlock=immediate")
 	if err != nil {
 		return nil, err
@@ -135,6 +143,7 @@ func snapshot(ctx context.Context, db *sql.DB, dest string) error {
 	if _, err := db.ExecContext(ctx, `VACUUM INTO ?`, tmp); err != nil {
 		return err
 	}
+	os.Chmod(tmp, 0o600)
 	if err := checkDB(ctx, tmp); err != nil {
 		return fmt.Errorf("verification failed: %w", err)
 	}
@@ -184,7 +193,7 @@ func gzipFile(src, dst string) error {
 	}
 	defer in.Close()
 	part := dst + ".part"
-	out, err := os.Create(part)
+	out, err := os.OpenFile(part, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
@@ -202,6 +211,11 @@ func gzipFile(src, dst string) error {
 	}
 	return os.Rename(part, dst)
 }
+
+// maxRestoreBytes bounds how far a staged backup may expand: a tiny .db.gz can otherwise
+// decompress to terabytes and fill the disk before quick_check runs. Same order as the
+// import cap (maxZipTotal in transfer).
+const maxRestoreBytes = int64(64) << 30
 
 // StageRestore validates a backup (.db or .db.gz) and stages it; it replaces the
 // live database on the next start. ponytail: restart-to-restore avoids hot-swapping
@@ -221,13 +235,17 @@ func StageRestore(ctx context.Context, dir, src string) error {
 		}
 		r = zr
 	}
+	limited := io.LimitReader(r, maxRestoreBytes+1)
 	part := filepath.Join(dir, restoreFile+".part")
-	out, err := os.Create(part)
+	out, err := os.OpenFile(part, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(out, r)
+	n, err := io.Copy(out, limited)
 	out.Close()
+	if err == nil && n > maxRestoreBytes {
+		err = errors.New("the backup expands to more data than this server accepts")
+	}
 	if err == nil {
 		err = checkDB(ctx, part)
 	}

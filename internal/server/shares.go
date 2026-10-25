@@ -128,7 +128,11 @@ func (s *Server) publicShare(w http.ResponseWriter, r *http.Request) {
 		from, to = *sh.From, *sh.To
 	}
 	var rows [][]any
-	total, _ := s.db.CountPoints(r.Context(), sh.UserID, from, to, 100)
+	total, err := s.db.CountPoints(r.Context(), sh.UserID, from, to, 100)
+	if err != nil {
+		internal(w, r, err)
+		return
+	}
 	step := max(1, int(math.Ceil(float64(total)/20_000)))
 	i := 0
 	err = s.db.ForEachPoint(r.Context(), sh.UserID, from, to, 100, func(p geo.Point) error {
