@@ -16,6 +16,27 @@ setWorkerUrl(workerUrl);
 
 type LonLat = [number, number];
 
+/**
+ * Compact attribution that starts collapsed to its (i) button. MapLibre only switches to compact
+ * mode on a resize, so on first load it shows the full text; we fold it as soon as the style's
+ * attribution arrives, and leave it alone once the user has opened or closed it themselves.
+ */
+class CollapsedAttribution extends AttributionControl {
+  onAdd(map: MLMap): HTMLElement {
+    const c = super.onAdd(map);
+    let touched = false;
+    c.querySelector("summary")?.addEventListener("click", () => (touched = true));
+    const fold = () => {
+      if (touched || c.classList.contains("maplibregl-attrib-empty")) return;
+      c.classList.add("maplibregl-compact");
+      c.classList.remove("maplibregl-compact-show");
+      c.removeAttribute("open");
+    };
+    for (const ev of ["styledata", "sourcedata", "resize"] as const) map.on(ev, fold);
+    return c;
+  }
+}
+
 export type LayerToggles = { path: boolean; points: boolean; heatmap: boolean; visits: boolean; places: boolean; family: boolean };
 export const defaultLayers: LayerToggles = { path: true, points: false, heatmap: false, visits: true, places: true, family: true };
 
@@ -325,7 +346,7 @@ export default function MapView(props: Props) {
     mapRef.current = map;
     map.addControl(new NavigationControl({ showCompass: false }), "bottom-right");
     // Top-right, under the layers button: the bottom corners are covered by the floating cards.
-    map.addControl(new AttributionControl({ compact: true }), "top-right");
+    map.addControl(new CollapsedAttribution({ compact: true }), "top-right");
     map.on("style.load", () => {
       sent.current.clear(); // a new style starts with empty sources
       addLayers(map);
