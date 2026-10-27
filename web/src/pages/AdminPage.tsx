@@ -9,6 +9,7 @@ import { usePrefs } from "../lib/prefs";
 import { TabLayout } from "../components/Tabs";
 import { Button, ConfirmDialog, Dialog, ErrorState, Field, Input, Notice, Section, Skeleton, Spinner, cn, useToast } from "../components/ui";
 import { Checkbox, Select, Stepper, Switch } from "../components/controls";
+import { CustomMaps, parseCustomMaps } from "./admin/CustomMaps";
 
 export default function AdminPage() {
   const { t } = useTranslation();
@@ -280,8 +281,8 @@ function InstanceSettings() {
   const settings = useQuery({ queryKey: ["settings"], queryFn: () => api<Settings>("/admin/settings") });
   const [form, setForm] = useState<Settings | null>(null);
   useEffect(() => {
-    if (settings.data) setForm(settings.data);
-  }, [settings.data]);
+    if (settings.data && !form) setForm(settings.data); // only once: later refetches must not wipe unsaved edits
+  }, [settings.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const save = useMutation({
     meta: { inline: true }, // error shown in the form
     mutationFn: (s: Settings) => {
@@ -291,9 +292,17 @@ function InstanceSettings() {
     onSuccess: (s) => {
       queryClient.setQueryData(["settings"], s);
       queryClient.invalidateQueries({ queryKey: ["config"] });
+      setForm(s);
       toast("success", t("settings.saved"));
     },
   });
+  /** A section that saved on its own (custom maps): take its keys from the server, keep other unsaved edits. */
+  const merge = (s: Settings, keys: string[]) => {
+    queryClient.setQueryData(["settings"], s);
+    queryClient.invalidateQueries({ queryKey: ["config"] });
+    setForm((f) => ({ ...(f ?? s), ...Object.fromEntries(keys.map((k) => [k, s[k] ?? ""])) }));
+    toast("success", t("settings.saved"));
+  };
   const testMail = useMutation({
     mutationFn: async () => {
       await save.mutateAsync(form!);
@@ -305,6 +314,12 @@ function InstanceSettings() {
   if (settings.isError) return <ErrorState error={settings.error} retry={() => settings.refetch()} />;
   if (!form) return <Skeleton className="h-64" />;
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value });
+  const editable = (s: Settings) => JSON.stringify(Object.entries(s).filter(([k]) => k !== "oidc_callback_url" && k !== "map_mbtiles_error").sort());
+  const dirty = !!settings.data && editable(form) !== editable(settings.data);
+  // Switching encryption moves the port along when it still is the previous mode's usual one.
+  const usualPort: Record<string, string> = { starttls: "587", tls: "465", none: "25" };
+  const setSecurity = (v: string) =>
+    setForm({ ...form, smtp_security: v, smtp_port: form.smtp_port === usualPort[form.smtp_security] || !form.smtp_port ? usualPort[v] : form.smtp_port });
   const val = (k: string) => (v: string) => setForm({ ...form, [k]: v });
   const flag = (k: string) => form[k] === "true";
 
@@ -315,6 +330,7 @@ function InstanceSettings() {
     { value: "osm", label: "OpenStreetMap" },
     { value: "topo", label: "OpenTopoMap" },
     ...(form.map_mbtiles ? [{ value: "offline", label: t("admin.bm.offline") }] : []),
+    ...parseCustomMaps(form.map_custom).map((m) => ({ value: m.id, label: m.name, hint: t("admin.cm.badge") })),
   ];
 
   return (
@@ -340,8 +356,10 @@ function InstanceSettings() {
               </Field>
             </div>
           </div>
+          <CustomMaps value={form.map_custom ?? "[]"} onSaved={(s) => merge(s, ["map_custom", "map_default"])} />
           <details className="group">
             <summary className="cursor-pointer text-sm font-medium text-primary">{t("admin.customStyles")}</summary>
+            <p className="mt-2 text-sm text-muted">{t("admin.customStylesHint")}</p>
             <div className="mt-4 grid gap-4">
               <Field label={t("admin.styleLight")}>{(id) => <Input id={id} value={form.map_style_light} onChange={set("map_style_light")} className="font-mono text-xs" />}</Field>
               <Field label={t("admin.styleDark")}>{(id) => <Input id={id} value={form.map_style_dark} onChange={set("map_style_dark")} className="font-mono text-xs" />}</Field>
@@ -374,7 +392,7 @@ function InstanceSettings() {
             <Field label={t("admin.smtpPort")}>{(id) => <Stepper id={id} label={t("admin.smtpPort")} min={1} max={65535} value={Number(form.smtp_port) || 587} onChange={(v) => setForm({ ...form, smtp_port: String(v) })} />}</Field>
             <Field label={t("admin.smtpSecurity")}>
               {(id) => (
-                <Select id={id} label={t("admin.smtpSecurity")} value={form.smtp_security} onChange={val("smtp_security")} options={[
+                <Select id={id} label={t("admin.smtpSecurity")} value={form.smtp_security} onChange={setSecurity} options={[
                   { value: "starttls", label: "STARTTLS", hint: t("admin.port587") },
                   { value: "tls", label: "TLS", hint: t("admin.port465") },
                   { value: "none", label: t("admin.noEncryption"), hint: t("admin.localOnly") },
@@ -382,7 +400,7 @@ function InstanceSettings() {
               )}
             </Field>
           </div>
-          <Field label={t("admin.smtpUser")}>{(id) => <Input id={id} value={form.smtp_user} autoComplete="off" onChange={set("smtp_user")} />}</Field>
+          <Field label={t("admin.smtpUser")} hint={t("admin.smtpUserHint")}>{(id, d) => <Input id={id} aria-describedby={d} value={form.smtp_user} autoComplete="off" onChange={set("smtp_user")} />}</Field>
           <Field label={t("admin.smtpPassword")}>{(id) => <Input id={id} type="password" value={form.smtp_password} autoComplete="new-password" onChange={set("smtp_password")} />}</Field>
           <Field label={t("admin.smtpFrom")} hint={t("admin.smtpFromHint")}>{(id, d) => <Input id={id} aria-describedby={d} value={form.smtp_from} placeholder="GeoTracker <geotracker@example.com>" onChange={set("smtp_from")} />}</Field>
           <div className="flex items-end">
@@ -420,8 +438,10 @@ function InstanceSettings() {
         </div>
       </Section>
 
-      <div className="sticky bottom-0 -mx-1 flex justify-end bg-gradient-to-t from-bg via-bg/90 to-transparent px-1 py-3">
-        <Button type="submit" variant="primary" loading={save.isPending}>{t("common.save")}</Button>
+      <div className="sticky bottom-0 -mx-1 flex items-center justify-end gap-3 bg-gradient-to-t from-bg via-bg/90 to-transparent px-1 py-3">
+        {dirty && <span className="text-sm text-muted">{t("admin.unsaved")}</span>}
+        {dirty && <Button type="button" variant="ghost" onClick={() => { save.reset(); setForm(settings.data!); }}>{t("admin.discard")}</Button>}
+        <Button type="submit" variant="primary" loading={save.isPending} disabled={!dirty}>{t("common.save")}</Button>
       </div>
     </form>
   );

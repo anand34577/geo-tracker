@@ -20,7 +20,21 @@ export type User = {
   created_at: number;
 };
 
-export type Basemap = { id: string; name: string; light: string; dark: string; offline?: boolean };
+export type Basemap = { id: string; name: string; light: string; dark: string; offline?: boolean; custom?: boolean };
+/** An admin-defined base map (the map_custom setting). */
+export type CustomMap = {
+  id: string;
+  name: string;
+  kind: "raster" | "style";
+  url: string;
+  url_dark?: string;
+  attribution?: string;
+  min_zoom: number;
+  max_zoom: number;
+  tile_size: number;
+  subdomains?: string;
+  proxy: boolean;
+};
 export type Config = { version: string; base_url: string; basemaps: Basemap[]; basemap_default: string; geocoder: boolean };
 export type AuthMethods = { password: boolean; oidc: boolean; oidc_label: string };
 export type GeocodeHit = { name: string; address: string; lat: number; lon: number };

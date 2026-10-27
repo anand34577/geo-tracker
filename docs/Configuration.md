@@ -22,9 +22,22 @@ Where to set them: Docker: the `.env` file next to `docker-compose.yml`. Linux i
 
 ### Maps
 
-The default is [OpenFreeMap](https://openfreemap.org): free, no API key. Any MapLibre style URL works (your own tile server, MapTiler with a key, …). Available online maps: OpenFreeMap Positron/Dark (follows the theme), Liberty and Bright, OpenStreetMap Standard and OpenTopoMap. People switch maps with the layers button.
+The default is [OpenFreeMap](https://openfreemap.org): free, no API key. Admins can add their own tile servers and styles (below). Available online maps: OpenFreeMap Positron/Dark (follows the theme), Liberty and Bright, OpenStreetMap Standard and OpenTopoMap. People switch maps with the layers button.
 
 **Privacy note:** the tile server sees roughly which areas you view. For zero third-party traffic use an offline map.
+
+### Custom maps (XYZ, TMS, WMS, styles)
+
+Admin → Settings → Maps → **Custom maps → Add custom map**. Two types:
+
+- **Tile URL (XYZ)**: a raster tile template such as `https://tiles.example.com/{z}/{x}/{y}.png`. Supported placeholders: `{z}` `{x}` `{y}`, `{-y}` for TMS servers, `{s}` for subdomains (a, b, c), `{r}` for retina suffixes, `{quadkey}` (Bing-style), and `{bbox-epsg-3857}` for WMS (`...&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&SRS=EPSG:3857`). Set the attribution the provider requires, the zoom range and the tile size.
+- **Style URL**: an `https://` MapLibre/Mapbox style JSON, optionally with a separate dark-theme style.
+
+**Test** fetches one tile (or the style) from the server and shows a preview before you save. Saved maps appear for everyone in the layers menu and can be the default base map. Removing the default map switches everyone back to *Standard*.
+
+**Load tiles through this server** proxies tiles via GeoTracker: API keys in the URL stay on the server, and tile servers on your network or on plain `http://` work (browsers block insecure tiles on an https page, so `http://` URLs always use the proxy). It costs the server's bandwidth.
+
+The *Custom map style URLs* fold-out replaces the style behind **Standard**; it only takes style JSON links, not tile templates.
 
 ### Offline maps
 
