@@ -4,6 +4,7 @@ package notify
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -11,10 +12,12 @@ import (
 	"mime"
 	"net"
 	"net/http"
-	"net/url"
-	"sync/atomic"
+	"net/mail"
 	"net/smtp"
+	"net/url"
+	"os"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -68,23 +71,62 @@ type SMTP struct {
 
 func (c SMTP) Configured() bool { return c.Host != "" && c.From != "" }
 
+// plainAuth is SMTP AUTH PLAIN without net/smtp's "encrypted connections only" rule. It is used
+// only when the admin explicitly chose no encryption (a trusted local relay).
+type plainAuth struct{ user, password string }
+
+func (a plainAuth) Start(*smtp.ServerInfo) (string, []byte, error) {
+	return "PLAIN", []byte("\x00" + a.user + "\x00" + a.password), nil
+}
+
+func (a plainAuth) Next(_ []byte, more bool) ([]byte, error) {
+	if more {
+		return nil, errors.New("unexpected server challenge")
+	}
+	return nil, nil
+}
+
+// heloName is how we introduce ourselves; some relays reject the default "localhost".
+func heloName() string {
+	if h, err := os.Hostname(); err == nil && h != "" && !strings.ContainsAny(h, " _") {
+		return h
+	}
+	return "localhost"
+}
+
 // SendEmail sends a plain-text message. "tls" means implicit TLS (usually port 465),
-// "starttls" upgrades a plain connection (usually 587) and refuses to continue without it.
+// "starttls" upgrades a plain connection (usually 587) and refuses to continue without it,
+// "none" talks plain SMTP (a local relay, usually port 25).
 func SendEmail(ctx context.Context, c SMTP, to, subject, body string) error {
 	if !c.Configured() {
 		return errors.New("SMTP is not configured (Admin → Settings)")
 	}
-	addr := net.JoinHostPort(c.Host, c.Port)
+	// The envelope needs bare addresses: "GeoTracker <gt@example.com>" is only valid in the header.
+	from, err := mail.ParseAddress(c.From)
+	if err != nil {
+		return errors.New("the sender address in Admin → Settings is not valid")
+	}
+	rcpt, err := mail.ParseAddress(to)
+	if err != nil {
+		return fmt.Errorf("invalid recipient address %q", to)
+	}
+	port := c.Port
+	if port == "" {
+		port = map[string]string{"tls": "465", "none": "25"}[c.Security]
+		if port == "" {
+			port = "587"
+		}
+	}
+	addr := net.JoinHostPort(c.Host, port)
 	d := net.Dialer{Timeout: 15 * time.Second}
 	var conn net.Conn
-	var err error
 	if c.Security == "tls" {
-		conn, err = tls.DialWithDialer(&d, "tcp", addr, &tls.Config{ServerName: c.Host})
+		conn, err = (&tls.Dialer{NetDialer: &d, Config: &tls.Config{ServerName: c.Host}}).DialContext(ctx, "tcp", addr)
 	} else {
 		conn, err = d.DialContext(ctx, "tcp", addr)
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot reach the mail server at %s: %w", addr, err)
 	}
 	conn.SetDeadline(time.Now().Add(30 * time.Second))
 	cl, err := smtp.NewClient(conn, c.Host)
@@ -93,6 +135,9 @@ func SendEmail(ctx context.Context, c SMTP, to, subject, body string) error {
 		return err
 	}
 	defer cl.Close()
+	if err := cl.Hello(heloName()); err != nil {
+		return err
+	}
 	if c.Security == "starttls" {
 		if ok, _ := cl.Extension("STARTTLS"); !ok {
 			return errors.New("server does not offer STARTTLS; choose TLS or None")
@@ -102,23 +147,34 @@ func SendEmail(ctx context.Context, c SMTP, to, subject, body string) error {
 		}
 	}
 	if c.User != "" {
-		// PlainAuth refuses to send credentials over an unencrypted connection (except to localhost).
-		if err := cl.Auth(smtp.PlainAuth("", c.User, c.Password, c.Host)); err != nil {
-			return err
+		if ok, _ := cl.Extension("AUTH"); ok {
+			var a smtp.Auth = smtp.PlainAuth("", c.User, c.Password, c.Host)
+			if c.Security == "none" {
+				a = plainAuth{c.User, c.Password} // the admin chose an unencrypted relay on purpose
+			}
+			if err := cl.Auth(a); err != nil {
+				return fmt.Errorf("mail server rejected the login: %w", err)
+			}
+		} else if c.Security != "none" {
+			return errors.New("mail server does not accept a login; clear the SMTP username")
 		}
+		// An unencrypted relay that offers no AUTH accepts mail by network address: send without a login.
 	}
-	if err := cl.Mail(c.From); err != nil {
-		return err
+	if err := cl.Mail(from.Address); err != nil {
+		return fmt.Errorf("mail server refused the sender: %w", err)
 	}
-	if err := cl.Rcpt(to); err != nil {
-		return err
+	if err := cl.Rcpt(rcpt.Address); err != nil {
+		return fmt.Errorf("mail server refused the recipient: %w", err)
 	}
 	w, err := cl.Data()
 	if err != nil {
 		return err
 	}
-	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nDate: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n%s\r\n",
-		c.From, to, mime.QEncoding.Encode("utf-8", subject), time.Now().Format(time.RFC1123Z), strings.ReplaceAll(body, "\n", "\r\n"))
+	domain := from.Address[strings.LastIndexByte(from.Address, '@')+1:]
+	id := make([]byte, 12)
+	rand.Read(id)
+	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nDate: %s\r\nMessage-ID: <%x@%s>\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n%s\r\n",
+		from.String(), rcpt.String(), mime.QEncoding.Encode("utf-8", subject), time.Now().Format(time.RFC1123Z), id, domain, crlf(body))
 	if _, err := w.Write([]byte(msg)); err != nil {
 		return err
 	}
@@ -126,6 +182,11 @@ func SendEmail(ctx context.Context, c SMTP, to, subject, body string) error {
 		return err
 	}
 	return cl.Quit()
+}
+
+// crlf normalizes line endings for SMTP (net/smtp's DATA writer escapes leading dots itself).
+func crlf(body string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(body, "\r\n", "\n"), "\n", "\r\n")
 }
 
 // SendGotify posts a message to a Gotify server using an application token.

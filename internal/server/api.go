@@ -694,7 +694,9 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request, _ *store.Us
 	// Read-only helpers for the admin UI.
 	out := map[string]any{"oidc_callback_url": s.oidcCallbackURL(r)}
 	for k, v := range st {
-		out[k] = v
+		if !store.InternalSettings[k] {
+			out[k] = v
+		}
 	}
 	if _, err := s.mbtiles(st); err != nil {
 		out["map_mbtiles_error"] = err.Error()
@@ -702,81 +704,164 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request, _ *store.Us
 	writeJSON(w, http.StatusOK, out)
 }
 
+// readOnlySettings are sent by GET /admin/settings for display only; a PUT that echoes them back is fine.
+var readOnlySettings = map[string]bool{"oidc_callback_url": true, "map_mbtiles_error": true}
+
+var builtinBasemaps = []string{"auto", "liberty", "bright", "osm", "topo", "offline"}
+
 func isURL(v string) bool {
 	u, err := url.Parse(v)
 	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != ""
 }
 
-func validSetting(k, v string) bool {
+// checkSetting validates one value and returns it normalized, or a message for the admin.
+func checkSetting(k, v string) (string, string) {
+	bad := func(msg string) (string, string) { return "", msg }
 	switch k {
 	case "map_default":
-		return slices.Contains([]string{"auto", "liberty", "bright", "osm", "topo", "offline"}, v)
+		// Checked against the (possibly just edited) custom map list in putSettings.
+		if len(v) == 0 || len(v) > 20 {
+			return bad("choose a default map")
+		}
+	case "map_custom":
+		if v == "" {
+			v = "[]"
+		}
+		var list []maps.Custom
+		if err := json.Unmarshal([]byte(v), &list); err != nil {
+			return bad("custom maps: invalid list")
+		}
+		if err := maps.NormalizeList(list); err != nil {
+			return bad("custom maps: " + err.Error())
+		}
+		if list == nil {
+			list = []maps.Custom{}
+		}
+		b, _ := json.Marshal(list)
+		return string(b), ""
 	case "map_mbtiles":
 		if v == "" {
-			return true
+			return v, ""
 		}
 		mb, err := maps.Open(v)
-		if err == nil {
-			mb.Close()
+		if err != nil {
+			return bad("cannot open that .mbtiles file on the server (check the path; with Docker, mount the folder into the container)")
 		}
-		return err == nil
+		mb.Close()
 	case "map_glyphs":
-		return v == "" || isURL(strings.NewReplacer("{fontstack}", "x", "{range}", "x").Replace(v))
-	case "smtp_host", "smtp_user", "smtp_password", "oidc_client_id", "oidc_client_secret", "oidc_label":
-		return len(v) <= 500
-	case "smtp_port":
-		n, err := strconv.Atoi(v)
-		return err == nil && n > 0 && n < 65536
-	case "smtp_from":
-		_, err := mail.ParseAddress(v)
-		return v == "" || err == nil
-	case "smtp_security":
-		return v == "starttls" || v == "tls" || v == "none"
-	case "oidc_enabled", "oidc_auto_register":
-		return v == "true" || v == "false"
-	case "oidc_issuer":
-		return v == "" || isURL(v)
-	case "geocoder":
-		return v == "nominatim" || v == "photon" || v == "none"
-	case "backup_hour":
-		n, err := strconv.Atoi(v)
-		return err == nil && n >= -1 && n <= 23
-	case "backup_keep":
-		n, err := strconv.Atoi(v)
-		return err == nil && n >= 1 && n <= 365
-	case "map_style_light", "map_style_dark", "geocoder_url":
-		if v == "" {
-			return k == "geocoder_url"
+		if v != "" && !isURL(strings.NewReplacer("{fontstack}", "x", "{range}", "x").Replace(v)) {
+			return bad("label fonts: enter an http(s) URL with {fontstack} and {range}, or leave empty")
 		}
-		u, err := url.Parse(v)
-		return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != ""
+	case "smtp_host", "smtp_user", "smtp_password", "oidc_client_id", "oidc_client_secret", "oidc_label":
+		if len(v) > 500 {
+			return bad(k + ": too long")
+		}
+	case "smtp_port":
+		if n, err := strconv.Atoi(v); err != nil || n <= 0 || n >= 65536 {
+			return bad("SMTP port must be between 1 and 65535")
+		}
+	case "smtp_from":
+		if _, err := mail.ParseAddress(v); v != "" && err != nil {
+			return bad("sender address: use name@example.com or Name <name@example.com>")
+		}
+	case "smtp_security":
+		if v != "starttls" && v != "tls" && v != "none" {
+			return bad("invalid SMTP security")
+		}
+	case "oidc_enabled", "oidc_auto_register":
+		if v != "true" && v != "false" {
+			return bad("invalid value for " + k)
+		}
+	case "oidc_issuer":
+		if v != "" && !isURL(v) {
+			return bad("SSO issuer must be an http(s) URL")
+		}
+		v = strings.TrimRight(v, "/")
+	case "geocoder":
+		if v != "nominatim" && v != "photon" && v != "none" {
+			return bad("invalid geocoder")
+		}
+	case "backup_hour":
+		if n, err := strconv.Atoi(v); err != nil || n < -1 || n > 23 {
+			return bad("backup hour must be between 0 and 23 (or off)")
+		}
+	case "backup_keep":
+		if n, err := strconv.Atoi(v); err != nil || n < 1 || n > 365 {
+			return bad("keep between 1 and 365 backups")
+		}
+	case "geocoder_url":
+		if v != "" && !isURL(v) {
+			return bad("geocoder URL must be an http(s) URL")
+		}
+	case "map_style_light", "map_style_dark":
+		if maps.IsTileTemplate(v) {
+			return bad("that is a tile URL ({z}/{x}/{y}); add it under Custom maps instead of as a style")
+		}
+		if !isURL(v) {
+			return bad("map style must be an http(s) URL to a style JSON")
+		}
+	default:
+		return bad("unknown setting " + k)
 	}
-	return false
+	return v, ""
 }
 
 func (s *Server) putSettings(w http.ResponseWriter, r *http.Request, u *store.User) {
-	var kv map[string]string
-	if !decode(w, r, &kv) {
+	var in map[string]string
+	if !decode(w, r, &in) {
 		return
 	}
-	for k, v := range kv {
+	cur, err := s.db.Settings(r.Context())
+	if err != nil {
+		internal(w, r, err)
+		return
+	}
+	kv := map[string]string{}
+	for k, v := range in {
+		if readOnlySettings[k] || store.InternalSettings[k] {
+			continue // display-only or server-managed: never written from the browser
+		}
 		v = strings.TrimSpace(v)
 		if store.SecretSettings[k] && v == secretMask {
-			delete(kv, k) // unchanged secret
-			continue
+			continue // unchanged secret
 		}
 		if k == "map_mbtiles" {
 			v = strings.Trim(v, `"`) // pasted Windows paths often come quoted
 		}
-		if !validSetting(k, v) {
-			msg := "invalid value for " + k
-			if k == "map_mbtiles" {
-				msg = "cannot open that .mbtiles file on the server (check the path; with Docker, mount the folder into the container)"
-			}
+		if _, known := store.DefaultSettings[k]; known && cur[k] == v {
+			continue // unchanged: don't re-validate (an unreachable .mbtiles path must not block saving SMTP)
+		}
+		nv, msg := checkSetting(k, v)
+		if msg != "" {
 			fail(w, http.StatusBadRequest, msg)
 			return
 		}
-		kv[k] = v
+		kv[k] = nv
+	}
+	merged := map[string]string{}
+	for k, v := range cur {
+		merged[k] = v
+	}
+	for k, v := range kv {
+		merged[k] = v
+	}
+	// Cross-field checks against the settings as they will be after this save.
+	if def := merged["map_default"]; !slices.Contains(builtinBasemaps, def) {
+		if _, ok := maps.FindCustom(maps.ParseCustom(merged["map_custom"]), def); !ok {
+			if _, changed := kv["map_default"]; changed {
+				fail(w, http.StatusBadRequest, "the default map does not exist")
+				return
+			}
+			kv["map_default"] = "auto" // its custom map was just removed
+		}
+	}
+	if merged["oidc_enabled"] == "true" && (merged["oidc_issuer"] == "" || merged["oidc_client_id"] == "") {
+		fail(w, http.StatusBadRequest, "single sign-on needs an issuer URL and a client ID")
+		return
+	}
+	if len(kv) == 0 {
+		s.getSettings(w, r, u)
+		return
 	}
 	s.oidc.mu.Lock()
 	s.oidc.c = nil // re-run discovery with the new settings

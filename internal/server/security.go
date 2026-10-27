@@ -17,7 +17,7 @@ func (s *Server) audit(r *http.Request, actorID int64, action, target string) {
 
 func (s *Server) auditLog(w http.ResponseWriter, r *http.Request, _ *store.User) {
 	before, _ := strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
-	entries, err := s.db.AuditLog(r.Context(), before, 100)
+	entries, err := s.db.AuditLog(r.Context(), before, 100, r.URL.Query().Get("q"))
 	if err != nil {
 		internal(w, r, err)
 		return

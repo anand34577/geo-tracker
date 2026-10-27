@@ -838,6 +838,7 @@ var DefaultSettings = map[string]string{
 	"map_default": "auto",                                                        // basemap id users get unless they pick another
 	"map_mbtiles": "",                                                            // path to a local .mbtiles file for offline maps
 	"map_glyphs":  "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf", // label fonts; empty = no labels (fully offline)
+	"map_custom":  "[]",                                                          // JSON list of admin-defined basemaps (maps.Custom)
 
 	"smtp_host":     "",
 	"smtp_port":     "587",
@@ -855,6 +856,9 @@ var DefaultSettings = map[string]string{
 
 	"recap_sent": "", // internal: the last month (yyyy-mm) whose recap went out
 }
+
+// InternalSettings are bookkeeping the server writes itself: never shown to or accepted from the admin UI.
+var InternalSettings = map[string]bool{"recap_sent": true}
 
 // SecretSettings are never sent back to the browser in clear text.
 var SecretSettings = map[string]bool{"smtp_password": true, "oidc_client_secret": true}

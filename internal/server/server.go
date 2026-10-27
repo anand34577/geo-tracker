@@ -151,6 +151,7 @@ func (s *Server) Handler() http.Handler {
 	// Maps & geocoding
 	handle("GET /api/v1/map/style/{id}", s.user(s.mapStyle))
 	handle("GET /api/v1/map/tiles/{z}/{x}/{y}", s.user(s.mapTile))
+	handle("GET /api/v1/map/proxy/{id}/{z}/{x}/{y}", s.user(s.mapProxy))
 	handle("GET /api/v1/geocode/search", s.user(s.geocodeSearch))
 	handle("GET /api/v1/geocode/reverse", s.user(s.geocodeReverse))
 
@@ -184,6 +185,7 @@ func (s *Server) Handler() http.Handler {
 	handle("DELETE /api/v1/admin/users/{id}", s.admin(s.deleteUser))
 	handle("GET /api/v1/admin/settings", s.admin(s.getSettings))
 	handle("PUT /api/v1/admin/settings", s.admin(s.putSettings))
+	handle("POST /api/v1/admin/maps/test", s.admin(s.testCustomMap))
 	handle("GET /api/v1/admin/system", s.admin(s.system))
 	handle("GET /api/v1/admin/backups", s.admin(s.listBackups))
 	handle("POST /api/v1/admin/backups", s.admin(s.createBackup))

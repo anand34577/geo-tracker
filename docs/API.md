@@ -68,11 +68,11 @@ Other accepted formats (same token rules): `/ingest/owntracks`, `/ingest/overlan
 | Insights | `GET /insights?from&to&tz[&new=1]` (`new=1` adds `new.places/cities/countries`: first-ever visits in the range) · `GET /days?from&to&tz` (points per local day) |
 | Places | `GET/POST /places` · `PUT/DELETE /places/{id}` |
 | Geocoding | `GET /geocode/search?q=` · `GET /geocode/reverse?lat&lon` |
-| Maps | `GET /map/style/{id}` · `GET /map/tiles/{z}/{x}/{y}` (offline MBTiles) |
+| Maps | `GET /map/style/{id}` · `GET /map/tiles/{z}/{x}/{y}` (offline MBTiles) · `GET /map/proxy/{id}/{z}/{x}/{y}` (proxied custom map) |
 | Devices | `GET/POST /devices` · `POST /devices/{id}/token` · `DELETE /devices/{id}` · `GET /devices/{id}/health?days=` (battery samples and quiet spells with a reason: `battery`, `stationary`, `offline`, `silent`) |
 | Sharing | `GET/POST /shares` · `DELETE /shares/{id}` · public: `GET /public/shares/{token}` |
 | Data | `GET/POST /imports` (multipart `file`) · `DELETE /imports/{id}` (undo) · `GET /export?format=native\|gpx\|geojson\|csv&from&to` (streamed) · background exports: `POST /exports` (`format`, optional `from`/`to`), `GET /exports`, `GET /exports/{id}/download`, `DELETE /exports/{id}` |
-| Admin | `/admin/users…` · `/admin/settings` · `/admin/system` · `/admin/backups…` |
+| Admin | `/admin/users…` · `/admin/settings` · `POST /admin/maps/test` · `/admin/system` · `/admin/backups…` · `GET /admin/audit?before=&q=` |
 
 `tz` is an IANA timezone name (e.g. `Asia/Kolkata`). Days are split in that zone.
 
