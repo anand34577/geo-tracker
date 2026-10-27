@@ -12,7 +12,7 @@ web/dist/
 .env
 
 # local launcher scripts
-/Claude-Account-*.cmd
+/Claude-*.cmd
 .DS_Store
 
 web/tsconfig.tsbuildinfo
