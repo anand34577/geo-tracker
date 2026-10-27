@@ -61,7 +61,10 @@ func fakeSMTP(t *testing.T) (addr string, data chan string) {
 				continue
 			}
 			switch cmd := strings.ToUpper(strings.Fields(line)[0]); cmd {
-			case "EHLO", "HELO", "MAIL", "RCPT":
+			case "MAIL", "RCPT":
+				body.WriteString("ENVELOPE " + line)
+				say("250 ok")
+			case "EHLO", "HELO":
 				say("250 ok")
 			case "DATA":
 				inData = true
@@ -85,8 +88,27 @@ func TestSendEmail(t *testing.T) {
 		t.Fatal(err)
 	}
 	msg := <-data
-	if !strings.Contains(msg, "To: ana@example.com") || !strings.Contains(msg, "Ana arrived at Home.") {
+	if !strings.Contains(msg, "To: <ana@example.com>") || !strings.Contains(msg, "Ana arrived at Home.") {
 		t.Fatalf("message = %q", msg)
+	}
+}
+
+// A local relay: no encryption, no AUTH offered, a username left in the form, and a display-name sender.
+func TestSendEmailLocalRelay(t *testing.T) {
+	addr, data := fakeSMTP(t)
+	host, port, _ := net.SplitHostPort(addr)
+	cfg := SMTP{Host: host, Port: port, User: "leftover", Password: "x", From: "GeoTracker Café <gt@example.com>", Security: "none"}
+	if err := SendEmail(context.Background(), cfg, "Ana <ana@example.com>", "Hi", "line1\nline2"); err != nil {
+		t.Fatal(err)
+	}
+	msg := <-data
+	for _, want := range []string{"ENVELOPE MAIL FROM:<gt@example.com>", "ENVELOPE RCPT TO:<ana@example.com>", "From: =?utf-8?q?GeoTracker_Caf=C3=A9?= <gt@example.com>", "Message-ID: <", "line1\r\nline2"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("missing %q in %q", want, msg)
+		}
+	}
+	if err := SendEmail(context.Background(), SMTP{Host: host, Port: port, From: "not an address"}, "a@example.com", "x", "y"); err == nil {
+		t.Fatal("invalid sender accepted")
 	}
 }
 

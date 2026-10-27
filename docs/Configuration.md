@@ -43,7 +43,15 @@ Visits (never your full track) are reverse-geocoded, cached and shared across us
 
 ### Email (SMTP)
 
-Host, port, encryption (STARTTLS on 587 or TLS on 465), user, password and sender. **Send test email to me** verifies it. Used for notifications, including family invitations.
+Host, port, encryption, user, password and sender. **Send test email to me** verifies it. Used for notifications, including family invitations.
+
+| Encryption | Usual port | Use for |
+|---|---|---|
+| STARTTLS | 587 | Most providers |
+| TLS | 465 | Providers with implicit TLS |
+| None | 25 | A local relay (Postfix, a router, a NAS) on a network you trust |
+
+With **None**, leave the username empty when the relay accepts mail by network address. If the relay asks for a login, GeoTracker sends it unencrypted, which is why None is only for trusted networks. The sender may include a name: `GeoTracker <geotracker@example.com>`.
 
 ### Notification services
 
