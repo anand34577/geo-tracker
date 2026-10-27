@@ -425,7 +425,7 @@ func TestSessionsAuditRetentionTripMode(t *testing.T) {
 	do(t, "POST", ts.URL+"/api/v1/auth/login", "", `{"email":"ana@example.com","password":"wrong password"}`)
 	_, b := do(t, "POST", ts.URL+"/api/v1/auth/token", "", `{"email":"ana@example.com","password":"correct horse"}`)
 	tok := b["token"].(string)
-	entries, _ := db.AuditLog(ctx, 0, 10)
+	entries, _ := db.AuditLog(ctx, 0, 10, "")
 	if len(entries) < 2 || entries[0].Action != "login" || entries[1].Action != "login.failed" {
 		t.Fatalf("audit = %+v", entries)
 	}

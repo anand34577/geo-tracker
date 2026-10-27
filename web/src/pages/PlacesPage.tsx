@@ -1,14 +1,27 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useMutation } from "@tanstack/react-query";
-import { EyeOff, MapPin, MousePointerClick, Pencil, Trash2 } from "lucide-react";
+import { EyeOff, MapPin, MousePointerClick, Pencil, Search, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api, queryClient, type Place } from "../lib/api";
 import { ago, duration } from "../lib/format";
 import { usePlaces } from "../lib/data";
 import MapView from "../components/MapView";
 import { PlaceDialog, PlaceIcon, type PlaceDraft } from "../components/places";
-import { Button, ConfirmDialog, EmptyState, ErrorState, Skeleton, useToast } from "../components/ui";
+import { Button, ConfirmDialog, EmptyState, ErrorState, Input, Skeleton, useToast } from "../components/ui";
+import { Select } from "../components/controls";
+import { number } from "../lib/format";
+
+type SortBy = "time" | "recent" | "visits" | "name";
+const SORT_KEY = "gt-places-sort";
+const sorters: Record<SortBy, (a: Place, b: Place) => number> = {
+  time: (a, b) => b.total_ms - a.total_ms,
+  recent: (a, b) => (b.last_visit ?? 0) - (a.last_visit ?? 0),
+  visits: (a, b) => b.visits - a.visits,
+  name: (a, b) => a.name.localeCompare(b.name),
+};
+/** Rendering hundreds of rows at once makes the panel sluggish on phones; grow on demand. */
+const PAGE = 100;
 import { AddressSearch } from "../components/AddressSearch";
 
 export default function PlacesPage() {
@@ -18,6 +31,24 @@ export default function PlacesPage() {
   const [draft, setDraft] = useState<PlaceDraft | null>(null);
   const [deleting, setDeleting] = useState<Place | null>(null);
   const [focus, setFocus] = useState<{ lon: number; lat: number; key: number } | null>(null);
+  const [q, setQ] = useState("");
+  const [limit, setLimit] = useState(PAGE);
+  const [sort, setSortState] = useState<SortBy>(() => {
+    try {
+      const v = localStorage.getItem(SORT_KEY) as SortBy | null;
+      return v && v in sorters ? v : "time";
+    } catch {
+      return "time";
+    }
+  });
+  const setSort = (v: SortBy) => {
+    setSortState(v);
+    try {
+      localStorage.setItem(SORT_KEY, v);
+    } catch {
+      /* private mode */
+    }
+  };
   // Arriving from the command palette (?place=): fly to that place once places are loaded.
   const [params, setParams] = useSearchParams();
   useEffect(() => {
@@ -37,29 +68,50 @@ export default function PlacesPage() {
     },
   });
 
-  const list = [...(places.data ?? [])].sort((a, b) => b.total_ms - a.total_ms);
+  const all = places.data ?? [];
+  const needle = q.trim().toLowerCase();
+  const list = all.filter((p) => !needle || p.name.toLowerCase().includes(needle)).sort(sorters[sort]);
 
   return (
     <div className="absolute inset-0 flex flex-col md:flex-row">
       <div className="order-2 flex min-h-0 flex-1 flex-col bg-surface md:order-1 md:w-[400px] md:flex-none md:border-r md:border-border">
         <div className="border-b border-border p-4">
-          <h1 className="text-lg font-semibold">{t("places.title")}</h1>
+          <h1 className="text-lg font-semibold">
+            {t("places.title")}
+            {all.length > 0 && <span className="ml-2 text-sm font-normal text-muted tabular-nums">{number(all.length)}</span>}
+          </h1>
           <p className="mt-1 flex items-center gap-1.5 text-sm text-muted">
             <MousePointerClick className="size-4 shrink-0" aria-hidden />
             {t("places.addHint")}
           </p>
           <AddressSearch className="mt-3" onPick={(h) => { setFocus({ lon: h.lon, lat: h.lat, key: Date.now() }); setDraft({ lon: h.lon, lat: h.lat, name: h.name }); }} />
+          {all.length > 5 && (
+            <div className="mt-3 flex gap-2">
+              <div className="relative min-w-0 flex-1">
+                <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-subtle" aria-hidden />
+                <Input type="search" value={q} onChange={(e) => { setQ(e.target.value); setLimit(PAGE); }} placeholder={t("places.filter")} aria-label={t("places.filter")} className="pl-9" />
+              </div>
+              <Select label={t("places.sortLabel")} value={sort} onChange={setSort} className="w-40 shrink-0" options={[
+                { value: "time", label: t("places.sort.time") },
+                { value: "recent", label: t("places.sort.recent") },
+                { value: "visits", label: t("places.sort.visits") },
+                { value: "name", label: t("places.sort.name") },
+              ]} />
+            </div>
+          )}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {places.isError ? (
             <ErrorState error={places.error} retry={() => places.refetch()} />
           ) : places.isPending ? (
             <div className="space-y-3 p-4">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-16" />)}</div>
-          ) : list.length === 0 ? (
+          ) : all.length === 0 ? (
             <EmptyState icon={MapPin} title={t("places.emptyTitle")} body={t("places.emptyBody")} />
+          ) : list.length === 0 ? (
+            <p className="p-6 text-center text-sm text-muted">{t("places.noMatch", { q })}</p>
           ) : (
             <ul className="p-3">
-              {list.map((p) => (
+              {list.slice(0, limit).map((p) => (
                 <li key={p.id} className="group flex items-center gap-3 rounded-xl p-3 hover:bg-surface-2">
                   <button className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => setFocus({ lon: p.lon, lat: p.lat, key: Date.now() })}>
                     <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary text-primary-fg">
@@ -87,6 +139,11 @@ export default function PlacesPage() {
                   </div>
                 </li>
               ))}
+              {list.length > limit && (
+                <li className="flex justify-center p-3">
+                  <Button size="sm" onClick={() => setLimit(limit + PAGE)}>{t("places.showMore", { count: list.length - limit })}</Button>
+                </li>
+              )}
             </ul>
           )}
         </div>

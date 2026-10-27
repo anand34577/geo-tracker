@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Navigate, useParams } from "react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ScrollText, Activity, ArchiveRestore, DatabaseBackup, Download, Plus, Settings2, Trash2, Upload, Users } from "lucide-react";
+import { ScrollText, Activity, ArchiveRestore, DatabaseBackup, Download, Plus, Search, Settings2, Trash2, Upload, Users } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api, queryClient, upload, useUser, type AuditEntry, type Backup, type Settings, type System, type User } from "../lib/api";
 import { bytes, dateTime, number } from "../lib/format";
@@ -44,6 +44,9 @@ function UsersTab() {
   const users = useQuery({ queryKey: ["users"], queryFn: () => api<User[]>("/admin/users") });
   const [form, setForm] = useState<UserForm | null>(null);
   const [deleting, setDeleting] = useState<User | null>(null);
+  const [q, setQ] = useState("");
+  const needle = q.trim().toLowerCase();
+  const shown = (users.data ?? []).filter((u) => !needle || u.name.toLowerCase().includes(needle) || u.email.toLowerCase().includes(needle));
 
   const save = useMutation({
     meta: { inline: true }, // error shown in the form
@@ -66,14 +69,22 @@ function UsersTab() {
   });
 
   return (
-    <Section title={t("admin.users")} description={t("admin.usersDesc")} actions={<Button variant="primary" size="sm" icon={Plus} onClick={() => { save.reset(); setForm(blank); }}>{t("admin.addUser")}</Button>}>
+    <Section title={users.data ? `${t("admin.users")} · ${number(users.data.length)}` : t("admin.users")} description={t("admin.usersDesc")} actions={<Button variant="primary" size="sm" icon={Plus} onClick={() => { save.reset(); setForm(blank); }}>{t("admin.addUser")}</Button>}>
       {users.isError ? (
         <ErrorState error={users.error} retry={() => users.refetch()} />
       ) : users.isPending ? (
         <Skeleton className="h-24" />
       ) : (
+        <>
+        {users.data.length > 8 && (
+          <div className="relative mb-3">
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-subtle" aria-hidden />
+            <Input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("admin.searchUsers")} aria-label={t("admin.searchUsers")} className="pl-9" />
+          </div>
+        )}
+        {shown.length === 0 && <p className="py-3 text-sm text-muted">{t("admin.noMatch")}</p>}
         <ul className="-my-2 divide-y divide-border">
-          {users.data.map((u) => (
+          {shown.map((u) => (
             <li key={u.id} className="flex flex-wrap items-center gap-3 py-3">
               <span className="grid size-9 place-items-center rounded-full bg-surface-3 text-sm font-semibold" aria-hidden>{u.name.slice(0, 1).toUpperCase()}</span>
               <div className="min-w-0 flex-1">
@@ -94,6 +105,7 @@ function UsersTab() {
             </li>
           ))}
         </ul>
+        </>
       )}
 
       <Dialog open={!!form} onClose={() => setForm(null)} title={form?.id ? t("admin.editUser") : t("admin.addUser")}
@@ -453,9 +465,16 @@ function AuditTab() {
   const { t } = useTranslation();
   const { clock } = usePrefs();
   const [pages, setPages] = useState<AuditEntry[][]>([]);
-  const first = useQuery({ queryKey: ["audit"], queryFn: () => api<AuditEntry[]>("/admin/audit") });
+  const [input, setInput] = useState("");
+  const [q, setQ] = useState("");
+  useEffect(() => {
+    const id = setTimeout(() => { setQ(input.trim()); setPages([]); }, 300);
+    return () => clearTimeout(id);
+  }, [input]);
+  const qs = q ? `&q=${encodeURIComponent(q)}` : "";
+  const first = useQuery({ queryKey: ["audit", q], queryFn: () => api<AuditEntry[]>(`/admin/audit?before=0${qs}`), placeholderData: (prev) => prev });
   const more = useMutation({
-    mutationFn: (before: number) => api<AuditEntry[]>(`/admin/audit?before=${before}`),
+    mutationFn: (before: number) => api<AuditEntry[]>(`/admin/audit?before=${before}${qs}`),
     onSuccess: (rows) => setPages((p) => [...p, rows]),
   });
   const rows = [...(first.data ?? []), ...pages.flat()];
@@ -464,12 +483,16 @@ function AuditTab() {
   const tone = (a: string) => (a.endsWith("failed") ? "text-danger" : a.includes("delete") || a.includes("restore") || a.includes("revoke") ? "text-warning" : "text-fg");
   return (
     <Section title={t("admin.audit")} description={t("admin.auditDesc")}>
+      <div className="relative mb-3">
+        <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-subtle" aria-hidden />
+        <Input type="search" value={input} onChange={(e) => setInput(e.target.value)} placeholder={t("admin.searchAudit")} aria-label={t("admin.searchAudit")} className="pl-9" />
+      </div>
       {first.isError ? (
         <ErrorState error={first.error} retry={() => first.refetch()} />
       ) : first.isPending ? (
         <Skeleton className="h-40" />
       ) : rows.length === 0 ? (
-        <p className="text-sm text-muted">{t("admin.auditEmpty")}</p>
+        <p className="text-sm text-muted">{q ? t("admin.noMatch") : t("admin.auditEmpty")}</p>
       ) : (
         <>
           <ol className="-my-2 divide-y divide-border">

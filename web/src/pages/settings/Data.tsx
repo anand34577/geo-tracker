@@ -1,4 +1,16 @@
 import { useRef, useState, type DragEvent } from "react";
+
+/** Job histories only grow; show the latest few and expand on request. */
+const RECENT = 5;
+function ShowAll({ total, open, onToggle }: { total: number; open: boolean; onToggle: () => void }) {
+  const { t } = useTranslation();
+  if (total <= RECENT) return null;
+  return (
+    <div className="flex justify-center pt-3">
+      <Button size="sm" variant="ghost" onClick={onToggle}>{open ? t("data.showRecent") : t("data.showAll", { count: total })}</Button>
+    </div>
+  );
+}
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { CheckCircle2, CircleAlert, Download, FileUp, Loader2, PackagePlus, RefreshCw, Trash2, Undo2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -29,6 +41,7 @@ function ImportSection() {
   const [progress, setProgress] = useState<{ name: string; fraction: number } | null>(null);
   const [dragging, setDragging] = useState(false);
   const [undoing, setUndoing] = useState<Import | null>(null);
+  const [allImports, setAllImports] = useState(false);
   const imports = useQuery({
     queryKey: ["imports"],
     queryFn: () => api<Import[]>("/imports"),
@@ -100,8 +113,9 @@ function ImportSection() {
       </details>
 
       {!!imports.data?.length && (
+        <>
         <ul className="mt-5 divide-y divide-border border-t border-border">
-          {imports.data.map((i) => (
+          {(allImports ? imports.data : imports.data.slice(0, RECENT)).map((i) => (
             <li key={i.id} className="flex flex-wrap items-center gap-3 py-3">
               {i.status === "done" ? <CheckCircle2 className="size-5 text-success" aria-hidden /> : i.status === "failed" ? <CircleAlert className="size-5 text-danger" aria-hidden /> : <Loader2 className="size-5 animate-spin text-primary" aria-hidden />}
               <div className="min-w-0 flex-1">
@@ -120,6 +134,8 @@ function ImportSection() {
             </li>
           ))}
         </ul>
+        <ShowAll total={imports.data.length} open={allImports} onToggle={() => setAllImports(!allImports)} />
+        </>
       )}
       <ConfirmDialog open={!!undoing} onClose={() => setUndoing(null)} onConfirm={() => undoing && undo.mutate(undoing)} loading={undo.isPending}
         title={t("data.undoTitle")} body={t("data.undoBody", { count: undoing?.added ?? 0, name: undoing?.filename })} confirmLabel={t("data.undo")} />
@@ -137,6 +153,7 @@ function ExportSection() {
   const [format, setFormat] = useState<"native" | "gpx" | "geojson" | "csv">("native");
   const [range, setRange] = useState<Range>(() => presetRange("all"));
   const [removing, setRemoving] = useState<DataExport | null>(null);
+  const [allExports, setAllExports] = useState(false);
   const exports = useQuery({
     queryKey: ["exports"],
     queryFn: () => api<DataExport[]>("/exports"),
@@ -176,8 +193,9 @@ function ExportSection() {
         <p className="text-sm text-muted">{t("data.exportBackground")}</p>
       </div>
       {!!exports.data?.length && (
+        <>
         <ul className="mt-5 divide-y divide-border border-t border-border">
-          {exports.data.map((e) => (
+          {(allExports ? exports.data : exports.data.slice(0, RECENT)).map((e) => (
             <li key={e.id} className="flex flex-wrap items-center gap-3 py-3">
               {e.status === "done" ? <CheckCircle2 className="size-5 text-success" aria-hidden /> : e.status === "failed" ? <CircleAlert className="size-5 text-danger" aria-hidden /> : <Loader2 className="size-5 animate-spin text-primary" aria-hidden />}
               <div className="min-w-0 flex-1">
@@ -201,6 +219,8 @@ function ExportSection() {
             </li>
           ))}
         </ul>
+        <ShowAll total={exports.data.length} open={allExports} onToggle={() => setAllExports(!allExports)} />
+        </>
       )}
       <ConfirmDialog open={!!removing} onClose={() => setRemoving(null)} onConfirm={() => removing && remove.mutate(removing)} loading={remove.isPending}
         title={t("data.exportRemoveTitle")} body={t("data.exportRemoveBody")} confirmLabel={t("common.delete")} />

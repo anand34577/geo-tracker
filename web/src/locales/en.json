@@ -213,6 +213,11 @@
     "unknown": "Moving"
   },
   "places": {
+    "filter": "Filter places",
+    "sortLabel": "Sort places",
+    "sort": { "time": "Most time", "recent": "Last visited", "visits": "Most visits", "name": "Name" },
+    "noMatch": "No place matches “{{q}}”.",
+    "showMore": "Show {{count}} more",
     "title": "Places",
     "addHint": "Click the map to add a place.",
     "add": "Add place",
@@ -351,6 +356,8 @@
     ]
   },
   "data": {
+    "showAll": "Show all ({{count}})",
+    "showRecent": "Show recent only",
     "importTitle": "Import history",
     "importDesc": "Bring in years of history. Duplicates are skipped, and you can undo any import.",
     "dropTitle": "Drop files here or click to choose",

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"math"
+	"strings"
 	"time"
 )
 
@@ -395,13 +396,20 @@ func (s *Store) Audit(ctx context.Context, actorID int64, action, target, ip str
 	s.W.ExecContext(ctx, `INSERT INTO audit_log (ts, actor_id, action, target, ip) VALUES (?, ?, ?, ?, ?)`, now(), nullID(actorID), action, target, ip)
 }
 
-// AuditLog pages backwards in time; before = 0 starts at the newest entry.
-func (s *Store) AuditLog(ctx context.Context, before int64, limit int) ([]AuditEntry, error) {
+// AuditLog pages backwards in time; before = 0 starts at the newest entry. q, when set,
+// matches the action, target, actor name or IP (case-insensitive substring).
+func (s *Store) AuditLog(ctx context.Context, before int64, limit int, q string) ([]AuditEntry, error) {
 	if before <= 0 {
 		before = math.MaxInt64
 	}
+	where, args := `a.id < ?`, []any{before}
+	if q = strings.TrimSpace(q); q != "" {
+		like := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(q) + "%"
+		where += ` AND (a.action LIKE ? ESCAPE '\' OR a.target LIKE ? ESCAPE '\' OR COALESCE(u.name, 'system') LIKE ? ESCAPE '\' OR a.ip LIKE ? ESCAPE '\')`
+		args = append(args, like, like, like, like)
+	}
 	rows, err := s.R.QueryContext(ctx, `SELECT a.id, a.ts, COALESCE(u.name, 'system'), a.action, a.target, a.ip FROM audit_log a
-		LEFT JOIN users u ON u.id = a.actor_id WHERE a.id < ? ORDER BY a.id DESC LIMIT ?`, before, limit)
+		LEFT JOIN users u ON u.id = a.actor_id WHERE `+where+` ORDER BY a.id DESC LIMIT ?`, append(args, limit)...)
 	if err != nil {
 		return nil, err
 	}
