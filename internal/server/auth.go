@@ -327,7 +327,7 @@ func (s *Server) patchMe(w http.ResponseWriter, r *http.Request, u *store.User) 
 	u.Email = email
 	if req.Prefs != nil {
 		var obj map[string]any
-		if json.Unmarshal(req.Prefs, &obj) != nil || len(req.Prefs) > 4096 {
+		if json.Unmarshal(req.Prefs, &obj) != nil || obj == nil || len(req.Prefs) > 4096 {
 			fail(w, http.StatusBadRequest, "prefs must be a small JSON object")
 			return
 		}

@@ -74,7 +74,9 @@ func (s *Server) getPoints(w http.ResponseWriter, r *http.Request, u *store.User
 
 	w.Header().Set("Content-Type", "application/json")
 	bw := bufio.NewWriterSize(w, 64<<10)
-	fmt.Fprintf(bw, `{"total":%d,"step":%d,"points":[`, total, step)
+	// "total" is written last: the count of points the caller may see (privacy zones excluded),
+	// which is only known once the stream has been filtered. The database count above is just for thinning.
+	bw.WriteString(`{"points":[`)
 	i, n := 0, 0
 	err = s.db.ForEachPoint(r.Context(), v.id, v.from, v.to, maxAcc, func(p geo.Point) error {
 		if v.hidden(p.Lat, p.Lon) {
@@ -101,7 +103,7 @@ func (s *Server) getPoints(w http.ResponseWriter, r *http.Request, u *store.User
 		slog.Error("stream points", "path", r.URL.Path, "err", err)
 		panic(http.ErrAbortHandler)
 	}
-	bw.WriteString("]}")
+	fmt.Fprintf(bw, `],"step":%d,"total":%d}`, step, i)
 	bw.Flush()
 }
 
@@ -324,7 +326,10 @@ func (s *Server) savePlace(w http.ResponseWriter, r *http.Request, u *store.User
 }
 
 func (s *Server) deletePlace(w http.ResponseWriter, r *http.Request, u *store.User) {
-	if err := s.db.DeletePlace(r.Context(), u.ID, pathID(r)); err != nil {
+	if err := s.db.DeletePlace(r.Context(), u.ID, pathID(r)); errors.Is(err, store.ErrNotFound) {
+		fail(w, http.StatusNotFound, "not found")
+		return
+	} else if err != nil {
 		internal(w, r, err)
 		return
 	}
@@ -380,7 +385,10 @@ func (s *Server) rotateDeviceToken(w http.ResponseWriter, r *http.Request, u *st
 }
 
 func (s *Server) deleteDevice(w http.ResponseWriter, r *http.Request, u *store.User) {
-	if err := s.db.DeleteDevice(r.Context(), u.ID, pathID(r)); err != nil {
+	if err := s.db.DeleteDevice(r.Context(), u.ID, pathID(r)); errors.Is(err, store.ErrNotFound) {
+		fail(w, http.StatusNotFound, "not found")
+		return
+	} else if err != nil {
 		internal(w, r, err)
 		return
 	}
@@ -527,8 +535,32 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request, u *store.User) {
 	w.Header().Set("Content-Type", meta[1])
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
 	s.audit(r, u.ID, "export", format)
-	if err := s.writeExport(r.Context(), w, u, format, from, to); err != nil {
+	tw := &wroteTracker{ResponseWriter: w}
+	if err := s.writeExport(r.Context(), tw, u, format, from, to); err != nil {
+		if tw.wrote {
+			// Part of the file is already on its way: a JSON error appended to it would look like a
+			// finished download. Cut the connection so the browser reports the download as failed.
+			slog.Error("export failed mid-stream", "err", err)
+			panic(http.ErrAbortHandler)
+		}
 		internal(w, r, err)
+	}
+}
+
+// wroteTracker records whether any body bytes have been sent.
+type wroteTracker struct {
+	http.ResponseWriter
+	wrote bool
+}
+
+func (t *wroteTracker) Write(b []byte) (int, error) {
+	t.wrote = true
+	return t.ResponseWriter.Write(b)
+}
+
+func (t *wroteTracker) Flush() {
+	if f, ok := t.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
 	}
 }
 
@@ -757,7 +789,7 @@ func checkSetting(k, v string) (string, string) {
 			return bad(k + ": too long")
 		}
 	case "smtp_port":
-		if n, err := strconv.Atoi(v); err != nil || n <= 0 || n >= 65536 {
+		if n, err := strconv.Atoi(v); v != "" && (err != nil || n <= 0 || n >= 65536) {
 			return bad("SMTP port must be between 1 and 65535")
 		}
 	case "smtp_from":

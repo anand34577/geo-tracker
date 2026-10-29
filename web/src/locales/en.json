@@ -1,5 +1,7 @@
 {
   "common": {
+    "showing": "Showing {{shown}} of {{total}}",
+    "showMore": "Show {{count}} more",
     "cancel": "Cancel",
     "close": "Close",
     "showPassword": "Show",
@@ -35,7 +37,10 @@
     "sharing": "Sharing",
     "more": "More",
     "family": "Family",
-    "automations": "Automations"
+    "automations": "Automations",
+    "groupTrack": "Track",
+    "groupUnderstand": "Understand",
+    "groupAct": "Share & automate"
   },
   "auth": {
     "welcomeBack": "Welcome back",
@@ -45,6 +50,11 @@
     "signIn": "Sign in",
     "forgotHint": "Forgot it? Ask your admin to set a new one.",
     "privacy": "Your location data stays on this server.",
+    "heroTitle": "Your life, mapped. Your data, yours.",
+    "heroBody": "A private location timeline you host yourself. No third party ever sees where you go.",
+    "feature1": "Automatic timeline of places and trips",
+    "feature2": "Share with family, on your terms",
+    "feature3": "Works with the tracking apps you already use",
     "sso": "Single sign-on",
     "orPassword": "or sign in with a password"
   },
@@ -60,6 +70,9 @@
     "label": "Map of your location today",
     "waitingTitle": "Waiting for your first location",
     "waitingBody": "Connect your phone and your position appears here live. You can also import your Google Timeline history.",
+    "step1": "Connect a phone or tracker",
+    "step2": "Your first location arrives",
+    "step3": "Your timeline builds itself",
     "connectPhone": "Connect phone",
     "importHistory": "Import history",
     "lastSeen": "Last seen",
@@ -150,6 +163,9 @@
     "moving": "Moving"
   },
   "timeline": {
+    "daysShown": "Showing {{shown}} of {{total}} days",
+    "showMoreDays": "Show more days",
+    "saveShort": "Save place",
     "today": "Today",
     "prevDay": "Previous day",
     "nextDay": "Next day",

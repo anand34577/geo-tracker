@@ -11,7 +11,7 @@ import { usePrefs } from "../lib/prefs";
 import i18n from "../lib/i18n";
 import MapView from "../components/MapView";
 import { PlaceIcon } from "../components/places";
-import { Button, EmptyState, ErrorState, Skeleton, cn } from "../components/ui";
+import { Button, EmptyState, ErrorState, Skeleton, cn, pageClass } from "../components/ui";
 import { Card, countryName, flag, placeLink } from "./InsightsPage";
 import { modeIcons } from "./TimelinePage";
 
@@ -48,7 +48,7 @@ export default function RecapPage() {
   const total = d ? d.modes.reduce((s, m) => s + m.distance, 0) : 0;
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 py-6 md:px-8 md:py-10">
+    <div className={pageClass}>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="flex items-center gap-1.5 text-sm font-medium text-primary"><Sparkles className="size-4" aria-hidden />{t("recap.kicker")}</p>
@@ -65,7 +65,7 @@ export default function RecapPage() {
       ) : !d ? (
         <div className="space-y-4"><Skeleton className="h-48" /><div className="grid gap-4 md:grid-cols-2"><Skeleton className="h-64" /><Skeleton className="h-64" /></div></div>
       ) : d.days_tracked === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border-strong">
+        <div className="rounded-2xl border border-border bg-surface shadow-card">
           <EmptyState icon={CalendarDays} title={t("recap.emptyTitle", { month: title })} body={t("recap.emptyBody")}
             action={<Button onClick={() => go(subMonths(month, 1))} icon={ChevronLeft}>{t("recap.prev")}</Button>} />
         </div>

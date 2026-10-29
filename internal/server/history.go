@@ -34,6 +34,13 @@ func (s *Server) patchVisit(w http.ResponseWriter, r *http.Request, u *store.Use
 		fail(w, http.StatusBadRequest, "missing visit start")
 		return
 	}
+	if ok, err := s.db.VisitExists(r.Context(), u.ID, req.Start); err != nil {
+		internal(w, r, err)
+		return
+	} else if !ok {
+		fail(w, http.StatusNotFound, "no visit starts at that time")
+		return
+	}
 	e, err := s.db.VisitEditAt(r.Context(), u.ID, req.Start)
 	if err != nil {
 		internal(w, r, err)

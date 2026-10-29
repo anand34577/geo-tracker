@@ -16,7 +16,8 @@ export function cachedPrefs(): Prefs {
 
 const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
 
-export function applyPrefs(p: Prefs) {
+export function applyPrefs(p: Prefs | null | undefined) {
+  p ??= {}; // a null/legacy value must never take the whole UI down
   const dark = p.theme === "dark" || ((p.theme ?? "system") === "system" && darkQuery.matches);
   const root = document.documentElement;
   root.classList.toggle("dark", dark);

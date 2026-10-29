@@ -7,7 +7,7 @@ import { api, queryClient, upload, useUser, type AuditEntry, type Backup, type S
 import { bytes, dateTime, number } from "../lib/format";
 import { usePrefs } from "../lib/prefs";
 import { TabLayout } from "../components/Tabs";
-import { Button, ConfirmDialog, Dialog, ErrorState, Field, Input, Notice, Section, Skeleton, Spinner, cn, useToast } from "../components/ui";
+import { Button, ConfirmDialog, Dialog, ErrorState, Field, Input, Notice, Section, ShowMore, Skeleton, Spinner, cn, useLimit, useToast } from "../components/ui";
 import { Checkbox, Select, Stepper, Switch } from "../components/controls";
 import { CustomMaps, parseCustomMaps } from "./admin/CustomMaps";
 
@@ -22,6 +22,7 @@ export default function AdminPage() {
     { id: "settings", label: t("admin.settings"), icon: Settings2 },
     { id: "audit", label: t("admin.audit"), icon: ScrollText },
   ];
+  if (!tabs.some((x) => x.id === tab)) return <Navigate to="/admin" replace />;
   return (
     <TabLayout title={t("nav.admin")} base="/admin" tabs={tabs}>
       {tab === "users" && <UsersTab />}
@@ -45,6 +46,7 @@ function UsersTab() {
   const [form, setForm] = useState<UserForm | null>(null);
   const [deleting, setDeleting] = useState<User | null>(null);
   const [q, setQ] = useState("");
+  const page = useLimit(50, q);
   const needle = q.trim().toLowerCase();
   const shown = (users.data ?? []).filter((u) => !needle || u.name.toLowerCase().includes(needle) || u.email.toLowerCase().includes(needle));
 
@@ -84,7 +86,7 @@ function UsersTab() {
         )}
         {shown.length === 0 && <p className="py-3 text-sm text-muted">{t("admin.noMatch")}</p>}
         <ul className="-my-2 divide-y divide-border">
-          {shown.map((u) => (
+          {shown.slice(0, page.limit).map((u) => (
             <li key={u.id} className="flex flex-wrap items-center gap-3 py-3">
               <span className="grid size-9 place-items-center rounded-full bg-surface-3 text-sm font-semibold" aria-hidden>{u.name.slice(0, 1).toUpperCase()}</span>
               <div className="min-w-0 flex-1">
@@ -105,6 +107,7 @@ function UsersTab() {
             </li>
           ))}
         </ul>
+        <ShowMore total={shown.length} limit={page.limit} onMore={page.more} step={page.step} />
         </>
       )}
 

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { BatteryMedium, CalendarDays, ChevronDown, Clock3, Copy, Crosshair, Gauge, LocateFixed, MapPin, Mountain, Navigation, Radio, Smartphone, Upload, X } from "lucide-react";
+import { BatteryMedium, CalendarDays, Check, ChevronDown, Clock3, Copy, Crosshair, Gauge, LocateFixed, MapPin, Mountain, Navigation, Radio, Smartphone, Upload, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { api, rowToPoint, type FamilyPerson, type PointRow, type PointStats, type Visit } from "../lib/api";
+import { api, rowToPoint, type Device, type FamilyPerson, type PointRow, type PointStats, type Visit } from "../lib/api";
 import { ago, dateTime, dayKey, distance, duration, speed } from "../lib/format";
 import { summarize, useFamily, useLatest, useMonthDays, usePlaces, usePoints, useTimeline } from "../lib/data";
 import { usePrefs } from "../lib/prefs";
@@ -90,6 +90,8 @@ export default function MapPage() {
   const me = isToday && latest.data ? { lon: latest.data.lon, lat: latest.data.lat, acc: latest.data.acc } : null;
   const sum = summarize(timeline.data);
   const empty = stats.data?.count === 0;
+  const devices = useQuery({ queryKey: ["devices"], queryFn: () => api<Device[]>("/devices"), enabled: empty });
+  const hasDevice = (devices.data?.length ?? 0) > 0;
   const currentVisit = timeline.data?.visits.at(-1);
   const atVisit = currentVisit && latest.data && latest.data.ts - currentVisit.end < 15 * 60_000;
   // A fix hours old says nothing about moving: say so instead of "On the move", and point at the phone setup.
@@ -169,6 +171,16 @@ export default function MapPage() {
                     <h2 className="font-semibold">{t("map.waitingTitle")}</h2>
                   </div>
                   <p className="mt-2 text-sm text-muted">{t("map.waitingBody")}</p>
+                  <ol className="mt-3 space-y-1.5 text-sm">
+                    {([[t("map.step1"), hasDevice], [t("map.step2"), false], [t("map.step3"), false]] as [string, boolean][]).map(([label, done], i) => (
+                      <li key={i} className={cn("flex items-center gap-2.5", done ? "text-muted" : "text-fg")}>
+                        <span className={cn("grid size-5 shrink-0 place-items-center rounded-full text-[11px] font-semibold", done ? "bg-success text-white" : "bg-surface-3 text-muted")}>
+                          {done ? <Check className="size-3" aria-hidden /> : i + 1}
+                        </span>
+                        <span className={done ? "line-through decoration-border-strong" : ""}>{label}</span>
+                      </li>
+                    ))}
+                  </ol>
                   <div className="mt-4 flex flex-wrap gap-2">
                     <Link to="/settings/devices"><Button variant="primary" size="sm" icon={Smartphone} tabIndex={-1}>{t("map.connectPhone")}</Button></Link>
                     <Link to="/settings/data"><Button size="sm" icon={Upload} tabIndex={-1}>{t("map.importHistory")}</Button></Link>
