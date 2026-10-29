@@ -9,7 +9,7 @@ import { ago, dateTime } from "../lib/format";
 import { useFamily, useGroups, usePlaces } from "../lib/data";
 
 import { Checkbox, Popover, RadioCards, Select, Switch } from "../components/controls";
-import { Avatar, Button, ConfirmDialog, Dialog, EmptyState, ErrorState, Field, Input, Notice, PageHeader, Skeleton, cn, useToast } from "../components/ui";
+import { Avatar, Button, ConfirmDialog, Dialog, EmptyState, ErrorState, Field, Input, Notice, PageHeader, Skeleton, cn, pageClass, useToast } from "../components/ui";
 
 const historyOptions = ["0", "1", "7", "30", "365", "-1"] as const;
 
@@ -29,8 +29,8 @@ export default function FamilyPage() {
   const active = (groups.data ?? []).filter((g) => g.members.find((m) => m.user_id === me.id)?.status === "active");
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 py-6 md:px-8 md:py-10">
-      <PageHeader title={t("family.title")} description={t("family.subtitle")} actions={<Button variant="primary" icon={Plus} onClick={() => setCreating(true)}>{t("family.newGroup")}</Button>} />
+    <div className={pageClass}>
+      <PageHeader icon={Users} title={t("family.title")} description={t("family.subtitle")} actions={<Button variant="primary" icon={Plus} onClick={() => setCreating(true)}>{t("family.newGroup")}</Button>} />
 
       {groups.isError ? (
         <ErrorState error={groups.error} retry={() => groups.refetch()} />
@@ -54,7 +54,7 @@ export default function FamilyPage() {
           })}
 
           {active.length === 0 && invites.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-border-strong">
+            <div className="rounded-2xl border border-border bg-surface shadow-card">
               <EmptyState icon={Users} title={t("family.emptyTitle")} body={t("family.emptyBody")}
                 action={<Button variant="primary" icon={Plus} onClick={() => setCreating(true)}>{t("family.newGroup")}</Button>} />
             </div>

@@ -108,7 +108,12 @@ type photo struct {
 	Lon *float64 `json:"lon,omitempty"`
 }
 
-// photos lists the user's Immich photos taken in [from, to] (at most 200).
+const (
+	photoPageSize  = 200
+	maxPhotoPages = 10 // up to 2000 photos in one range
+)
+
+// photos lists the user's Immich photos taken in [from, to] (at most photoPageSize*maxPhotoPages).
 func (s *Server) photos(w http.ResponseWriter, r *http.Request, u *store.User) {
 	from, to, ok := timeRange(r)
 	if !ok || r.URL.Query().Get("from") == "" || r.URL.Query().Get("to") == "" {
@@ -120,42 +125,55 @@ func (s *Server) photos(w http.ResponseWriter, r *http.Request, u *store.User) {
 		writeJSON(w, http.StatusOK, []photo{})
 		return
 	}
-	resp, err := immichDo(r.Context(), c, http.MethodPost, "/api/search/metadata", map[string]any{
-		"takenAfter":  time.UnixMilli(from).UTC().Format(time.RFC3339),
-		"takenBefore": time.UnixMilli(to).UTC().Format(time.RFC3339),
-		"type":        "IMAGE",
-		"size":        200,
-		"withExif":    true,
-		"order":       "asc",
-	})
-	if err != nil {
-		fail(w, http.StatusBadGateway, "could not reach Immich")
-		return
+	type asset struct {
+		ID            string `json:"id"`
+		FileCreatedAt string `json:"fileCreatedAt"`
+		ExifInfo      *struct {
+			DateTimeOriginal string   `json:"dateTimeOriginal"`
+			Latitude         *float64 `json:"latitude"`
+			Longitude        *float64 `json:"longitude"`
+		} `json:"exifInfo"`
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		fail(w, http.StatusBadGateway, fmt.Sprintf("Immich answered HTTP %d", resp.StatusCode))
-		return
+	// Page through the results so a busy day is not silently truncated.
+	var items []asset
+	for page := 1; page <= maxPhotoPages; page++ {
+		resp, err := immichDo(r.Context(), c, http.MethodPost, "/api/search/metadata", map[string]any{
+			"takenAfter":  time.UnixMilli(from).UTC().Format(time.RFC3339),
+			"takenBefore": time.UnixMilli(to).UTC().Format(time.RFC3339),
+			"type":        "IMAGE",
+			"size":        photoPageSize,
+			"page":        page,
+			"withExif":    true,
+			"order":       "asc",
+		})
+		if err != nil {
+			fail(w, http.StatusBadGateway, "could not reach Immich")
+			return
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			fail(w, http.StatusBadGateway, fmt.Sprintf("Immich answered HTTP %d", resp.StatusCode))
+			return
+		}
+		var res struct {
+			Assets struct {
+				Items    []asset `json:"items"`
+				NextPage any     `json:"nextPage"`
+			} `json:"assets"`
+		}
+		err = json.NewDecoder(resp.Body).Decode(&res)
+		resp.Body.Close()
+		if err != nil {
+			fail(w, http.StatusBadGateway, "unexpected answer from Immich")
+			return
+		}
+		items = append(items, res.Assets.Items...)
+		if res.Assets.NextPage == nil || res.Assets.NextPage == "" || len(res.Assets.Items) == 0 {
+			break
+		}
 	}
-	var res struct {
-		Assets struct {
-			Items []struct {
-				ID            string `json:"id"`
-				FileCreatedAt string `json:"fileCreatedAt"`
-				ExifInfo      *struct {
-					DateTimeOriginal string   `json:"dateTimeOriginal"`
-					Latitude         *float64 `json:"latitude"`
-					Longitude        *float64 `json:"longitude"`
-				} `json:"exifInfo"`
-			} `json:"items"`
-		} `json:"assets"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		fail(w, http.StatusBadGateway, "unexpected answer from Immich")
-		return
-	}
-	out := make([]photo, 0, len(res.Assets.Items))
-	for _, a := range res.Assets.Items {
+	out := make([]photo, 0, len(items))
+	for _, a := range items {
 		p := photo{ID: a.ID}
 		when := a.FileCreatedAt
 		if a.ExifInfo != nil {
@@ -193,9 +211,9 @@ func (s *Server) photoThumb(w http.ResponseWriter, r *http.Request, u *store.Use
 	}
 	defer resp.Body.Close()
 	// Never relay the upstream's status (a 401 from Immich would look like our own session ending)
-	// or a non-image type from a server the user typed in.
+	// or a non-raster type (SVG can carry script) from a server the user typed in.
 	ct := resp.Header.Get("Content-Type")
-	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(ct, "image/") {
+	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(ct, "image/") || strings.HasPrefix(ct, "image/svg") {
 		http.NotFound(w, r)
 		return
 	}

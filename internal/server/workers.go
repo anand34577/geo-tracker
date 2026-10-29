@@ -77,7 +77,11 @@ func (s *Server) timelineLoop(ctx context.Context) {
 			return
 		case <-tick.C:
 		case <-s.wakeTimeline:
-			time.Sleep(3 * time.Second) // debounce bursts of points
+			select { // debounce bursts of points
+			case <-ctx.Done():
+				return
+			case <-time.After(3 * time.Second):
+			}
 		}
 	}
 }
@@ -207,7 +211,9 @@ func (s *Server) runImport(ctx context.Context, imp *store.Import) {
 		n, err := s.db.InsertPoints(ctx, imp.UserID, 0, imp.ID, batch)
 		imp.Added += n
 		total += len(batch)
-		imp.Duplicates = total - imp.Added
+		// On a resume the file is re-read from the start, so rows added before the interruption
+		// are counted in Added but not yet in total; never show a negative count mid-run.
+		imp.Duplicates = max(0, total-imp.Added)
 		batch = batch[:0]
 		if err == nil {
 			s.db.UpdateImport(ctx, imp)
@@ -278,6 +284,8 @@ func (s *Server) maintenanceLoop(ctx context.Context) {
 	tick := time.NewTicker(time.Minute)
 	defer tick.Stop()
 	alertedDay := "" // one backup-failure alert per day, not one per retry
+	var retryAt time.Time // after a failed backup wait before trying again (a full disk will not fix itself in a minute)
+	backoff := 5 * time.Minute
 	housekeeping := func() {
 		if n, err := s.db.ApplyRetention(ctx); err != nil {
 			slog.Error("retention", "err", err)
@@ -298,7 +306,15 @@ func (s *Server) maintenanceLoop(ctx context.Context) {
 			return
 		case <-tick.C:
 		}
-		if err := s.scheduledBackup(ctx); err != nil {
+		var err error
+		if time.Now().After(retryAt) {
+			if err = s.scheduledBackup(ctx); err == nil {
+				backoff = 5 * time.Minute
+			}
+		}
+		if err != nil {
+			retryAt = time.Now().Add(backoff)
+			backoff = min(backoff*2, 2*time.Hour)
 			slog.Error("scheduled backup failed", "err", err)
 			if today := time.Now().Format(time.DateOnly); alertedDay != today {
 				alertedDay = today

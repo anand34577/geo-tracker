@@ -11,7 +11,7 @@ import { usePrefs } from "../lib/prefs";
 import i18n from "../lib/i18n";
 import { RangePicker, presetRange, type Range } from "../components/controls";
 import { PlaceIcon } from "../components/places";
-import { EmptyState, ErrorState, Skeleton, cn } from "../components/ui";
+import { EmptyState, ErrorState, Skeleton, cn, pageClass } from "../components/ui";
 import { modeIcons } from "./TimelinePage";
 
 export default function InsightsPage() {
@@ -27,10 +27,10 @@ export default function InsightsPage() {
   const d = q.data;
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-8 md:py-10">
+    <div className={pageClass}>
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t("insights.title")}</h1>
+          <h1 className="text-[1.75rem] leading-tight font-semibold tracking-tight">{t("insights.title")}</h1>
           <p className="mt-1 text-sm text-muted">{t("insights.subtitle")}</p>
         </div>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">
@@ -174,20 +174,21 @@ export const placeLink = (p: InsightPlace) => (p.place_id ? `/places?place=${p.p
 
 export function Kpi({ icon: Icon, label, value, sub }: { icon: LucideIcon; label: string; value: string; sub?: string }) {
   return (
-    <div className="rounded-2xl border border-border bg-surface p-4">
-      <div className="flex items-center gap-2 text-sm text-muted">
-        <span className="grid size-7 place-items-center rounded-lg bg-primary-subtle text-primary"><Icon className="size-4" aria-hidden /></span>
+    <div className="gt-rise group relative overflow-hidden rounded-2xl border border-border bg-surface p-4 shadow-card transition-shadow hover:shadow-pop">
+      <span className="pointer-events-none absolute -top-10 -right-10 size-28 rounded-full bg-primary/5 transition-transform duration-300 group-hover:scale-125" aria-hidden />
+      <div className="relative flex items-center gap-2 text-sm text-muted">
+        <span className="grid size-8 place-items-center rounded-xl bg-primary-subtle text-primary ring-1 ring-primary/10"><Icon className="size-4" aria-hidden /></span>
         {label}
       </div>
-      <p className="mt-3 text-2xl font-semibold tracking-tight tabular-nums">{value}</p>
-      {sub && <p className="mt-0.5 text-xs text-subtle">{sub}</p>}
+      <p className="relative mt-3 text-[1.65rem] leading-none font-semibold tracking-tight tabular-nums">{value}</p>
+      {sub && <p className="relative mt-1.5 text-xs text-subtle">{sub}</p>}
     </div>
   );
 }
 
 export function Card({ title, icon: Icon, children }: { title: string; icon: LucideIcon; children: React.ReactNode }) {
   return (
-    <section className="rounded-2xl border border-border bg-surface p-5">
+    <section className="rounded-2xl border border-border bg-surface p-5 shadow-card">
       <h2 className="mb-4 flex items-center gap-2 font-semibold"><Icon className="size-4 text-subtle" aria-hidden />{title}</h2>
       {children}
     </section>

@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { useParams } from "react-router";
+import { Navigate, useParams } from "react-router";
 import { useMutation } from "@tanstack/react-query";
 import { Bell, Database, Palette, Puzzle, Smartphone, UserRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -25,6 +25,7 @@ export default function SettingsPage() {
     { id: "integrations", label: t("settings.integrations"), icon: Puzzle },
     { id: "data", label: t("settings.data"), icon: Database },
   ];
+  if (!tabs.some((x) => x.id === tab)) return <Navigate to="/settings" replace />;
   return (
     <TabLayout title={t("nav.settings")} base="/settings" tabs={tabs}>
       {tab === "profile" && <ProfileTab />}

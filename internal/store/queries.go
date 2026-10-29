@@ -280,8 +280,26 @@ func (s *Store) RotateDeviceToken(ctx context.Context, userID, deviceID int64, t
 }
 
 func (s *Store) DeleteDevice(ctx context.Context, userID, id int64) error {
-	_, err := s.W.ExecContext(ctx, `DELETE FROM devices WHERE id = ? AND user_id = ?`, id, userID)
-	return err
+	return deleted(s.W.ExecContext(ctx, `DELETE FROM devices WHERE id = ? AND user_id = ?`, id, userID))
+}
+
+// VisitExists reports whether the user has a stored visit covering the instant ts. Edits are
+// matched to recomputed visits by time, so the given start may be a little off a visit's own start.
+func (s *Store) VisitExists(ctx context.Context, userID, start int64) (bool, error) {
+	var n int
+	err := s.R.QueryRowContext(ctx, `SELECT COUNT(*) FROM visits WHERE user_id = ? AND start_ts <= ? AND end_ts >= ?`, userID, start+60_000, start-60_000).Scan(&n)
+	return n > 0, err
+}
+
+// deleted turns "no row matched" into ErrNotFound so callers can answer 404 instead of a silent success.
+func deleted(res sql.Result, err error) error {
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // TokenLookup resolves a token hash to its active owner.
@@ -699,8 +717,7 @@ func (s *Store) UpdatePlace(ctx context.Context, userID int64, p *Place) error {
 }
 
 func (s *Store) DeletePlace(ctx context.Context, userID, id int64) error {
-	_, err := s.W.ExecContext(ctx, `DELETE FROM places WHERE id = ? AND user_id = ?`, id, userID)
-	return err
+	return deleted(s.W.ExecContext(ctx, `DELETE FROM places WHERE id = ? AND user_id = ?`, id, userID))
 }
 
 // VisitCenters returns every visit's time span and center, for matching visits to places.
@@ -1049,8 +1066,7 @@ func (s *Store) ShareByToken(ctx context.Context, hash []byte, countView bool) (
 }
 
 func (s *Store) DeleteShare(ctx context.Context, userID, id int64) error {
-	_, err := s.W.ExecContext(ctx, `DELETE FROM share_links WHERE id = ? AND user_id = ?`, id, userID)
-	return err
+	return deleted(s.W.ExecContext(ctx, `DELETE FROM share_links WHERE id = ? AND user_id = ?`, id, userID))
 }
 
 // ── Insights ─────────────────────────────────────────────────

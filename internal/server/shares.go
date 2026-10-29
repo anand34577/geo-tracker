@@ -70,7 +70,10 @@ func (s *Server) createShare(w http.ResponseWriter, r *http.Request, u *store.Us
 }
 
 func (s *Server) deleteShare(w http.ResponseWriter, r *http.Request, u *store.User) {
-	if err := s.db.DeleteShare(r.Context(), u.ID, pathID(r)); err != nil {
+	if err := s.db.DeleteShare(r.Context(), u.ID, pathID(r)); errors.Is(err, store.ErrNotFound) {
+		fail(w, http.StatusNotFound, "not found")
+		return
+	} else if err != nil {
 		internal(w, r, err)
 		return
 	}
@@ -127,7 +130,7 @@ func (s *Server) publicShare(w http.ResponseWriter, r *http.Request) {
 	if sh.Kind == "range" {
 		from, to = *sh.From, *sh.To
 	}
-	var rows [][]any
+	rows := [][]any{}
 	total, err := s.db.CountPoints(r.Context(), sh.UserID, from, to, 100)
 	if err != nil {
 		internal(w, r, err)

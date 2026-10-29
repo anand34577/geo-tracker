@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { createBrowserRouter, Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-router";
+import { createBrowserRouter, Link, Navigate, NavLink, Outlet, useLocation, useNavigate, useRouteError } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { BarChart3, CalendarDays, ChevronsUpDown, LogOut, Map as MapIcon, MapPin, Menu, Search, Settings, Share2, ShieldCheck, Users, Zap, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -31,6 +31,7 @@ export const router = createBrowserRouter([
   { path: "/s/:token", element: <Suspense fallback={<Spinner />}><PublicShare /></Suspense> },
   {
     element: <Protected />,
+    errorElement: <RouteError />,
     children: [
       {
         element: <Shell />,
@@ -51,6 +52,16 @@ export const router = createBrowserRouter([
     ],
   },
 ]);
+
+/** A render crash shows this instead of React Router's developer error page. */
+function RouteError() {
+  const error = useRouteError();
+  return (
+    <main className="grid min-h-dvh place-items-center bg-bg p-6">
+      <ErrorState error={error} retry={() => window.location.assign("/")} />
+    </main>
+  );
+}
 
 function Protected() {
   const me = useMe();
@@ -83,6 +94,13 @@ const primaryNav: NavItem[] = [
   { to: "/places", icon: MapPin, key: "nav.places" },
   { to: "/automations", icon: Zap, key: "nav.automations" },
   { to: "/sharing", icon: Share2, key: "nav.sharing" },
+];
+
+// The sidebar groups the same items by intent: where you are, what it means, what it can do for you.
+const navGroups: { label: string; items: NavItem[] }[] = [
+  { label: "nav.groupTrack", items: [primaryNav[0], primaryNav[1], primaryNav[2]] },
+  { label: "nav.groupUnderstand", items: [primaryNav[3], primaryNav[4]] },
+  { label: "nav.groupAct", items: [primaryNav[5], primaryNav[6]] },
 ];
 
 function useSignOut() {
@@ -143,14 +161,14 @@ function Sidebar({ onSearch }: { onSearch: () => void }) {
 
   const item = ({ isActive }: { isActive: boolean }) =>
     cn(
-      "group relative flex h-10 items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors",
-      isActive ? "bg-side-active text-side-fg" : "text-side-muted hover:bg-side-hover hover:text-side-fg",
+      "group relative flex h-10 items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors duration-150",
+      isActive ? "bg-side-active text-side-fg shadow-[inset_0_0_0_1px_rgb(255_255_255/0.04)]" : "text-side-muted hover:bg-side-hover hover:text-side-fg",
     );
   const indicator = (active: boolean) => <span className={cn("absolute top-2 bottom-2 left-0 w-0.5 rounded-full bg-primary transition-opacity", active ? "opacity-100" : "opacity-0")} aria-hidden />;
 
   return (
     <aside className="hidden w-60 shrink-0 flex-col border-r border-side-border bg-side text-side-fg md:flex">
-      <Link to="/" className="flex h-16 items-center gap-2.5 px-5 font-semibold tracking-tight" aria-label="GeoTracker">
+      <Link to="/" className="flex h-16 shrink-0 items-center gap-2.5 px-5 font-semibold tracking-tight" aria-label="GeoTracker">
         <Logo className="size-8" />
         <span className="text-[15px]">GeoTracker</span>
       </Link>
@@ -159,20 +177,25 @@ function Sidebar({ onSearch }: { onSearch: () => void }) {
         <span className="flex-1 text-left">{t("cmd.search")}</span>
         <kbd className="rounded border border-side-border px-1.5 text-[10px]">{navigator.platform.includes("Mac") ? "⌘K" : "Ctrl K"}</kbd>
       </button>
-      <nav aria-label={t("nav.main")} className="flex flex-col gap-0.5 px-3 pt-2">
-        {primaryNav.map((n) => (
-          <NavLink key={n.to} to={n.to} end={n.end} className={item}>
-            {({ isActive }) => (
-              <>
-                {indicator(isActive)}
-                <n.icon className={cn("size-[18px]", isActive && "text-primary")} aria-hidden />
-                {t(n.key)}
-              </>
-            )}
-          </NavLink>
+      <nav aria-label={t("nav.main")} className="flex flex-1 flex-col gap-5 overflow-y-auto px-3 pt-3">
+        {navGroups.map((g) => (
+          <div key={g.label} className="flex flex-col gap-0.5">
+            <p className="px-3 pb-1 text-[11px] font-semibold tracking-wider text-side-muted/70 uppercase">{t(g.label)}</p>
+            {g.items.map((n) => (
+              <NavLink key={n.to} to={n.to} end={n.end} className={item}>
+                {({ isActive }) => (
+                  <>
+                    {indicator(isActive)}
+                    <n.icon className={cn("size-[18px] transition-colors", isActive && "text-primary")} aria-hidden />
+                    {t(n.key)}
+                  </>
+                )}
+              </NavLink>
+            ))}
+          </div>
         ))}
       </nav>
-      <div className="mt-auto flex flex-col gap-0.5 px-3 pb-3">
+      <div className="flex flex-col gap-0.5 border-t border-side-border px-3 pt-3 pb-3">
         <NavLink to="/settings" className={item}>
           {({ isActive }) => (<>{indicator(isActive)}<Settings className="size-[18px]" aria-hidden />{t("nav.settings")}</>)}
         </NavLink>
@@ -188,7 +211,7 @@ function Sidebar({ onSearch }: { onSearch: () => void }) {
           aria-label={t("nav.account")}
           className="mt-2 flex items-center gap-3 rounded-xl border border-side-border p-2 text-left hover:bg-side-hover"
         >
-          <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary text-sm font-semibold text-primary-fg" aria-hidden>
+          <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary text-sm font-semibold text-primary-fg shadow-btn" aria-hidden>
             {user.name.slice(0, 1).toUpperCase()}
           </span>
           <span className="min-w-0 flex-1">

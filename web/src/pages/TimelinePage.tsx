@@ -3,8 +3,8 @@ import { useLocation, useNavigate, useParams, useSearchParams } from "react-rout
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { addDays, isValid, parseISO } from "date-fns";
 import {
-  Bike, Car, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Footprints, Gauge, History, MapPinned, Merge, MoreHorizontal, Pencil, Plane, Plus, Split,
-  TrainFront, Trash2, TrendingDown, TrendingUp, type LucideIcon,
+  Bike, BookmarkPlus, Car, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Footprints, Gauge, History, MapPin, MapPinned, Merge, MoreHorizontal, Pencil, Plane, Plus, Route, Split,
+  Timer, TrainFront, Trash2, TrendingDown, TrendingUp, type LucideIcon,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api, queryClient, useUser, type PointStats, type Trip, type TripMode, type Visit } from "../lib/api";
@@ -20,6 +20,9 @@ import { AreaChart } from "../components/Chart";
 import { Avatar, Button, cn, Dialog, EmptyState, ErrorState, Field, Input, Notice, Segmented, Skeleton, useToast } from "../components/ui";
 
 export const modeIcons: Record<TripMode, LucideIcon> = { walk: Footprints, cycle: Bike, drive: Car, train: TrainFront, flight: Plane, unknown: CircleHelp };
+
+/** Day groups rendered per step in range mode. */
+const DAY_CHUNK = 14;
 
 type Entry = { kind: "visit"; v: Visit; start: number } | { kind: "trip"; t: Trip; start: number };
 
@@ -116,6 +119,17 @@ export default function TimelinePage() {
   const flt = useMemo(() => filterRows(allRows, viz), [allRows, viz]);
   const path = useMemo(() => pathSegments(flt), [flt]);
   const [hoverTrip, setHoverTrip] = useState<number | null>(null);
+  // A year of history is hundreds of day groups; reveal them as the list is scrolled, not all at once.
+  const [shownDays, setShownDays] = useState(DAY_CHUNK);
+  useEffect(() => setShownDays(DAY_CHUNK), [from, to, viewUser]);
+  const more = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = more.current;
+    if (!el) return;
+    const io = new IntersectionObserver((e) => e[0].isIntersecting && setShownDays((n) => n + DAY_CHUNK), { root: listRef.current, rootMargin: "400px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [shownDays, groups.length]);
   const sum = summarize(timeline.data);
 
   const rows = points.data?.points;
@@ -160,7 +174,7 @@ export default function TimelinePage() {
             <Notice tone="info">{t("timeline.limitedHistory", { name: viewed.name, date: longDate(new Date(viewed.history_from!)) })}</Notice>
           )}
           <div className="flex items-center justify-between gap-3">
-            <h1 className="text-lg font-semibold tracking-tight">{viewed ? t("timeline.whoseTitle", { name: viewed.name }) : t("nav.timeline")}</h1>
+            <h1 className="text-xl font-semibold tracking-tight">{viewed ? t("timeline.whoseTitle", { name: viewed.name }) : t("nav.timeline")}</h1>
             <Segmented
               label={t("timeline.view")}
               value={rangeMode ? "range" : "day"}
@@ -178,21 +192,21 @@ export default function TimelinePage() {
             </div>
           )}
           <div className="flex items-baseline justify-between gap-2">
-            <p className="truncate text-sm font-medium">{rangeMode ? t("timeline.rangeTitle") : day === todayKey ? t("timeline.today") : longDate(parseISO(day))}</p>
-            {!rangeMode && day !== todayKey && <button className="shrink-0 text-sm font-medium text-primary" onClick={() => goDay(todayKey)}>{t("timeline.today")}</button>}
+            <p className="truncate text-base font-semibold">{rangeMode ? t("timeline.rangeTitle") : day === todayKey ? t("timeline.today") : longDate(parseISO(day))}</p>
+            {!rangeMode && day !== todayKey && <button className="shrink-0 rounded-full bg-primary-subtle px-2.5 py-0.5 text-xs font-medium text-primary hover:brightness-95" onClick={() => goDay(todayKey)}>{t("timeline.today")}</button>}
           </div>
           {!empty && (
             <div className="grid grid-cols-3 gap-2">
               {loading
                 ? [0, 1, 2].map((i) => <Skeleton key={i} className="h-14" />)
-                : [
-                    [t("summary.distance"), distance(sum.distance, units)],
-                    [t("summary.places"), String(sum.places)],
-                    [t("summary.moving"), duration(sum.moving)],
-                  ].map(([k, v]) => (
-                    <div key={k} className="rounded-xl bg-surface-2 px-3 py-2">
-                      <p className="text-[11px] text-subtle">{k}</p>
-                      <p className="font-semibold tabular-nums">{v}</p>
+                : ([
+                    [Route, t("summary.distance"), distance(sum.distance, units)],
+                    [MapPin, t("summary.places"), String(sum.places)],
+                    [Timer, t("summary.moving"), duration(sum.moving)],
+                  ] as [LucideIcon, string, string][]).map(([I, k, v]) => (
+                    <div key={k} className="rounded-xl border border-border bg-surface-2/60 px-3 py-2">
+                      <p className="flex items-center gap-1 text-[11px] text-subtle"><I className="size-3 text-primary" aria-hidden />{k}</p>
+                      <p className="mt-0.5 truncate text-[15px] font-semibold tabular-nums">{v}</p>
                     </div>
                   ))}
             </div>
@@ -215,7 +229,7 @@ export default function TimelinePage() {
           ) : groups.length === 0 ? (
             <p className="p-6 text-sm text-muted">{t("timeline.processing")}</p>
           ) : (
-            groups.map((g) => (
+            groups.slice(0, shownDays).map((g) => (
               <section key={g.day} aria-label={longDate(parseISO(g.day))}>
                 {rangeMode && (
                   <button onClick={() => goDay(g.day)} className="sticky top-0 z-[1] flex w-full items-center justify-between border-b border-border bg-surface/95 px-4 py-2 text-left backdrop-blur-sm hover:text-primary">
@@ -243,6 +257,12 @@ export default function TimelinePage() {
                 </ol>
               </section>
             ))
+          )}
+          {groups.length > shownDays && (
+            <div ref={more} className="flex items-center justify-center gap-3 p-4 text-sm text-muted">
+              <span>{t("timeline.daysShown", { shown: shownDays, total: groups.length })}</span>
+              <Button size="sm" onClick={() => setShownDays(shownDays + DAY_CHUNK)}>{t("timeline.showMoreDays")}</Button>
+            </div>
           )}
         </div>
       </div>
@@ -325,6 +345,8 @@ function VisitItem({ v, bounds, active, clock, editable, onSelect, onSave, onEdi
     </button>
   );
   const reveal = "md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100";
+  // Long stays at an unsaved spot are worth naming: one tap makes them a place everywhere (they would otherwise be named differently each day).
+  const nudge = editable && !v.place_id && !v.custom_name && end - start >= 30 * 60_000;
   return (
     <li data-visit={v.id}>
       <div className={cn("group flex gap-1 rounded-xl p-3 transition-colors", active ? "bg-primary-subtle" : "hover:bg-surface-2")}>
@@ -343,7 +365,12 @@ function VisitItem({ v, bounds, active, clock, editable, onSelect, onSave, onEdi
             </span>
           </span>
         </button>
-        {!v.place_id && (
+        {nudge && (
+          <button onClick={onSave} className="my-auto flex shrink-0 items-center gap-1 rounded-full bg-primary-subtle px-2.5 py-1 text-xs font-medium text-primary hover:brightness-95">
+            <BookmarkPlus className="size-3.5" aria-hidden />{t("timeline.saveShort")}
+          </button>
+        )}
+        {!v.place_id && !nudge && (
           <Button variant="ghost" size="icon" className={cn("size-9", reveal)} onClick={onSave} aria-label={t("timeline.saveAsPlace")} title={t("timeline.saveAsPlace")}>
             <Plus className="size-4" />
           </Button>

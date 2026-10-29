@@ -60,7 +60,7 @@ Other accepted formats (same token rules): `/ingest/owntracks`, `/ingest/overlan
 |---|---|
 | Me | `GET/PATCH /me` · `POST /me/password` · `GET/PUT /me/notifications` · `POST /me/notifications/test?channel=email\|gotify` |
 | Config | `GET /config` (version, public URL, available base maps) |
-| Points | `GET /points?from&to&max&raw&user` → `{"total","step","points":[[ts,lat,lon,acc,speed,alt,batt]]}` · `POST /points` (one fix, e.g. "send my location") · `GET /points/latest` · `DELETE /points?from&to` · `GET /stats` |
+| Points | `GET /points?from&to&max&raw&user` → `{"points":[[ts,lat,lon,acc,speed,alt,batt]],"step","total"}` (`total` counts the points you may see, privacy zones excluded) · `POST /points` (one fix, e.g. "send my location") · `GET /points/latest` · `DELETE /points?from&to` · `GET /stats` |
 | Timeline | `GET /timeline?from&to&user` → `{"visits":[…],"trips":[…]}` · `PUT /trips/mode {start, mode}` (correct a trip) · `PATCH /visits {start, name?, place_id?, hidden?, merge_to?}` (correct a visit; `place_id` 0 = automatic, -1 = none; fields left out keep their value) · `GET /visits/search?q=` (places in your history with first/last visit; accepts questions like "when was I last at the office?") · `POST /timeline/rebuild` |
 | Family | `GET /family` (people + what they share + live position) · `GET/POST /groups` · `PATCH/DELETE /groups/{id}` · `POST /groups/{id}/members {email}` · `PUT /groups/{id}/me` (accept / change own sharing) · `DELETE /groups/{id}/members/{uid}` · `GET/POST /alerts` · `DELETE /alerts/{id}` |
 | Photos | `GET/PUT /me/integrations` (Immich) · `GET /photos?from&to` · `GET /photos/{id}/thumb?size=thumbnail\|preview` |

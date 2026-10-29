@@ -15,15 +15,34 @@ import { AlertTriangle, CheckCircle2, Eye, EyeOff, Loader2, X, type LucideIcon }
 import { useTranslation } from "react-i18next";
 import i18n from "../lib/i18n";
 
+/** Long lists render a slice and grow on demand, so the page stays fast as data accumulates. */
+export function useLimit(step = 25, resetKey?: unknown) {
+  const [n, setN] = useState(step);
+  useEffect(() => setN(step), [step, resetKey]);
+  return { limit: n, more: () => setN((x) => x + step), step };
+}
+
+/** "Show N more" row under a sliced list; renders nothing when everything is visible. */
+export function ShowMore({ total, limit, onMore, step }: { total: number; limit: number; onMore: () => void; step: number }) {
+  const { t } = useTranslation();
+  if (total <= limit) return null;
+  return (
+    <div className="flex items-center justify-center gap-3 border-t border-border p-3 text-sm text-muted">
+      <span className="tabular-nums">{t("common.showing", { shown: limit, total })}</span>
+      <Button size="sm" onClick={onMore}>{t("common.showMore", { count: Math.min(step, total - limit) })}</Button>
+    </div>
+  );
+}
+
 export const cn = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(" ");
 
 // ── Button ───────────────────────────────────────────────────
 
 const variants = {
-  primary: "bg-primary text-primary-fg hover:bg-primary-hover",
-  secondary: "bg-surface text-fg border border-border-strong hover:bg-surface-2",
+  primary: "bg-primary text-primary-fg shadow-btn hover:bg-primary-hover hover:shadow-btn-hover",
+  secondary: "bg-surface text-fg border border-border-strong shadow-sm hover:bg-surface-2 hover:border-border-strong",
   ghost: "text-muted hover:text-fg hover:bg-surface-2",
-  danger: "bg-danger text-white hover:opacity-90 dark:text-black",
+  danger: "bg-danger text-white shadow-sm hover:opacity-90 dark:text-black",
 };
 const sizes = { sm: "h-8 px-3 text-sm gap-1.5", md: "h-10 px-4 text-sm gap-2", icon: "size-10 justify-center" };
 
@@ -38,7 +57,7 @@ export function Button({ variant = "secondary", size = "md", loading, icon: Icon
   return (
     <button
       className={cn(
-        "inline-flex shrink-0 items-center rounded-lg font-medium whitespace-nowrap transition-colors duration-150 disabled:pointer-events-none disabled:opacity-50",
+        "inline-flex shrink-0 items-center rounded-lg font-medium whitespace-nowrap transition-[background-color,box-shadow,transform,border-color] duration-150 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50",
         variants[variant],
         sizes[size],
         className,
@@ -74,7 +93,7 @@ export function Field({ label, hint, error, children }: { label: string; hint?: 
 }
 
 const control =
-  "h-10 w-full rounded-lg border border-border-strong bg-surface px-3 text-sm text-fg placeholder:text-subtle transition-colors focus:border-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-60";
+  "h-10 w-full rounded-lg border border-border-strong bg-surface px-3 text-sm text-fg shadow-sm placeholder:text-subtle transition-[border-color,box-shadow] hover:border-subtle focus:border-primary focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/15 disabled:opacity-60";
 
 export function Input({ className, type, ...rest }: InputHTMLAttributes<HTMLInputElement>) {
   const [shown, setShown] = useState(false);
@@ -105,7 +124,7 @@ export function Input({ className, type, ...rest }: InputHTMLAttributes<HTMLInpu
 /** Segmented control for 2–4 mutually exclusive options. */
 export function Segmented<T extends string>({ value, onChange, options, label }: { value: T; onChange: (v: T) => void; options: { value: T; label: string }[]; label: string }) {
   return (
-    <div role="radiogroup" aria-label={label} className="inline-flex rounded-lg border border-border-strong bg-surface-2 p-0.5">
+    <div role="radiogroup" aria-label={label} className="inline-flex rounded-lg border border-border bg-surface-2 p-0.5">
       {options.map((o) => (
         <button
           key={o.value}
@@ -126,24 +145,34 @@ export function Segmented<T extends string>({ value, onChange, options, label }:
 
 // ── Layout ───────────────────────────────────────────────────
 
-export function PageHeader({ title, description, actions }: { title: string; description?: string; actions?: ReactNode }) {
+/** One width and gutter for every full page, so titles stay put when you move between sections. */
+export const pageClass = "mx-auto w-full max-w-6xl px-4 py-6 md:px-8 md:py-10";
+
+export function PageHeader({ title, description, actions, icon: Icon }: { title: string; description?: string; actions?: ReactNode; icon?: LucideIcon }) {
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-        {description && <p className="mt-1 max-w-prose text-sm text-muted">{description}</p>}
+    <div className="mb-8 flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
+      <div className="flex min-w-0 items-center gap-4">
+        {Icon && (
+          <span className="hidden size-12 shrink-0 place-items-center rounded-2xl bg-primary-subtle text-primary ring-1 ring-primary/10 sm:grid">
+            <Icon className="size-6" aria-hidden />
+          </span>
+        )}
+        <div className="min-w-0">
+          <h1 className="text-[1.75rem] leading-tight font-semibold tracking-tight">{title}</h1>
+          {description && <p className="mt-1 max-w-prose text-sm text-muted">{description}</p>}
+        </div>
       </div>
-      {actions && <div className="flex gap-2">{actions}</div>}
+      {actions && <div className="flex shrink-0 gap-2">{actions}</div>}
     </div>
   );
 }
 
 export function Section({ title, description, children, actions }: { title: string; description?: ReactNode; children: ReactNode; actions?: ReactNode }) {
   return (
-    <section className="rounded-xl border border-border bg-surface">
-      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-5 py-4">
+    <section className="overflow-hidden rounded-2xl border border-border bg-surface shadow-card">
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border bg-surface-2/50 px-5 py-4">
         <div>
-          <h2 className="font-semibold">{title}</h2>
+          <h2 className="font-semibold tracking-tight">{title}</h2>
           {description && <p className="mt-0.5 text-sm text-muted">{description}</p>}
         </div>
         {actions}
@@ -154,7 +183,7 @@ export function Section({ title, description, children, actions }: { title: stri
 }
 
 export function Skeleton({ className }: { className?: string }) {
-  return <div className={cn("animate-pulse rounded-lg bg-surface-2", className)} aria-hidden />;
+  return <div className={cn("gt-shimmer rounded-lg bg-surface-2", className)} aria-hidden />;
 }
 
 export function Spinner({ label }: { label?: string }) {
@@ -169,13 +198,17 @@ export function Spinner({ label }: { label?: string }) {
 
 export function EmptyState({ icon: Icon, title, body, action }: { icon: LucideIcon; title: string; body?: ReactNode; action?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center px-6 py-12 text-center">
-      <div className="mb-4 grid size-12 place-items-center rounded-full bg-primary-subtle text-primary">
-        <Icon className="size-6" aria-hidden />
+    <div className="flex flex-col items-center px-6 py-14 text-center">
+      <div className="relative mb-5">
+        <span className="absolute -inset-3 rounded-full bg-primary/5" aria-hidden />
+        <span className="absolute -inset-1.5 rounded-full bg-primary/10" aria-hidden />
+        <div className="relative grid size-14 place-items-center rounded-full bg-primary text-primary-fg shadow-btn">
+          <Icon className="size-6" aria-hidden />
+        </div>
       </div>
-      <h3 className="font-semibold">{title}</h3>
-      {body && <p className="mt-1 max-w-sm text-sm text-muted">{body}</p>}
-      {action && <div className="mt-5">{action}</div>}
+      <h3 className="text-base font-semibold tracking-tight">{title}</h3>
+      {body && <p className="mt-1.5 max-w-sm text-sm text-muted">{body}</p>}
+      {action && <div className="mt-6">{action}</div>}
     </div>
   );
 }

@@ -443,18 +443,38 @@ export default function MapView(props: Props) {
       {/* sized with h-full, not absolute: MapLibre's CSS forces position:relative on this element */}
       <div ref={el} className="h-full w-full" role="region" aria-label={props.label} />
       {!styleUrl && <Skeleton className="absolute inset-0 rounded-none" />}
+      {/* One control rail: layers + colour-by share a single rounded strip, the legend hangs beneath it. */}
+      {(showMenu || showViz) && (
+        <div className="pointer-events-none absolute top-3 right-3 z-10 flex w-40 flex-col items-end gap-2 *:pointer-events-auto">
+          <div className="flex flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-pop">
       {showMenu && (
-        <div className="absolute top-3 right-3 z-10">
           <button
             ref={layersBtn}
             onClick={() => setMenu(!menu)}
             aria-expanded={menu}
-            className="grid size-10 place-items-center rounded-xl border border-border bg-surface text-fg shadow-pop hover:bg-surface-2"
+            className="grid size-10 place-items-center text-fg hover:bg-surface-2 aria-expanded:bg-primary-subtle aria-expanded:text-primary"
             aria-label={t("map.layers")}
             title={t("map.layers")}
           >
             <Layers className="size-5" />
           </button>
+      )}
+      {showMenu && showViz && <div className="h-px bg-border" aria-hidden />}
+      {showViz && (
+          <button
+            ref={vizBtn}
+            onClick={() => setVizOpen(!vizOpen)}
+            aria-expanded={vizOpen}
+            className="relative grid size-10 place-items-center text-fg hover:bg-surface-2 aria-expanded:bg-primary-subtle aria-expanded:text-primary"
+            aria-label={t("map.viz.title")}
+            title={t("map.viz.title")}
+          >
+            <Palette className="size-5" />
+            {nFilters > 0 && <span className="absolute top-0.5 right-0.5 grid size-4 place-items-center rounded-full bg-primary text-[9px] font-semibold text-primary-fg">{nFilters}</span>}
+          </button>
+      )}
+          </div>
+          {showMenu && (
           <Popover anchor={layersBtn} open={menu} onClose={() => setMenu(false)} align="end" className="w-72 p-1.5">
             {basemaps.length > 1 && (
               <>
@@ -488,29 +508,17 @@ export default function MapView(props: Props) {
               </>
             )}
           </Popover>
-        </div>
-      )}
-      {showViz && (
-        <div className={cn("pointer-events-none absolute right-3 z-10 flex w-40 flex-col items-end gap-2 *:pointer-events-auto", showMenu ? "top-[3.75rem]" : "top-3")}>
-          <button
-            ref={vizBtn}
-            onClick={() => setVizOpen(!vizOpen)}
-            aria-expanded={vizOpen}
-            className="relative grid size-10 place-items-center rounded-xl border border-border bg-surface text-fg shadow-pop hover:bg-surface-2"
-            aria-label={t("map.viz.title")}
-            title={t("map.viz.title")}
-          >
-            <Palette className="size-5" />
-            {nFilters > 0 && <span className="absolute -top-1.5 -right-1.5 grid size-5 place-items-center rounded-full bg-primary text-[10px] font-semibold text-primary-fg">{nFilters}</span>}
-          </button>
+          )}
           {legend && (
             <div className="w-40 rounded-xl border border-border bg-surface/95 px-2.5 py-2 shadow-pop backdrop-blur-sm">
               <Legend viz={props.viz!} ext={ext} units={units} clock={clock} />
             </div>
           )}
+          {showViz && (
           <Popover anchor={vizBtn} open={vizOpen} onClose={() => setVizOpen(false)} align="end" className="w-[22rem] max-w-[calc(100vw-1.5rem)] p-0">
             <VizControls viz={props.viz!} onChange={props.onVizChange!} ext={ext} units={units} clock={clock} shown={props.flt!.rows.length} total={props.flt!.total} />
           </Popover>
+          )}
         </div>
       )}
       {failed && <div className="absolute inset-x-4 top-16 rounded-lg border border-border bg-surface px-4 py-3 text-sm shadow-pop">{t("map.styleFailed")}</div>}

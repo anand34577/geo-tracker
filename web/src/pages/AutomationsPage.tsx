@@ -7,7 +7,7 @@ import { api, queryClient, type AutoAction, type Automation } from "../lib/api";
 import { useFamily, usePlaces } from "../lib/data";
 import { ago } from "../lib/format";
 import { Checkbox, Select, Stepper, Switch } from "../components/controls";
-import { Button, ConfirmDialog, Dialog, EmptyState, ErrorState, Field, Input, Notice, PageHeader, Skeleton, cn, useToast } from "../components/ui";
+import { Button, ConfirmDialog, Dialog, EmptyState, ErrorState, Field, Input, Notice, PageHeader, ShowMore, Skeleton, cn, pageClass, useLimit, useToast } from "../components/ui";
 
 type ActionType = AutoAction["type"];
 const actionTypes: { type: ActionType; icon: LucideIcon }[] = [
@@ -34,6 +34,7 @@ const toBody = (f: Form) => ({ name: f.name, place_id: Number(f.place_id), on_ar
 const toForm = (a: Automation): Form => ({ id: a.id, name: a.name, place_id: String(a.place_id), on_arrive: a.on_arrive, on_leave: a.on_leave, enabled: a.enabled, cooldown_min: a.cooldown_min, actions: a.actions });
 
 export default function AutomationsPage() {
+  const page = useLimit(20);
   const { t } = useTranslation();
   const toast = useToast();
   const list = useQuery({ queryKey: ["automations"], queryFn: () => api<Automation[]>("/automations") });
@@ -83,20 +84,20 @@ export default function AutomationsPage() {
   const newButton = <Button variant="primary" icon={Plus} onClick={create} disabled={noPlaces}>{t("auto.new")}</Button>;
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-4 py-6 md:px-8 md:py-10">
-      <PageHeader title={t("auto.title")} description={t("auto.subtitle")} actions={newButton} />
+    <div className={pageClass}>
+      <PageHeader icon={Zap} title={t("auto.title")} description={t("auto.subtitle")} actions={newButton} />
       {list.isError ? (
         <ErrorState error={list.error} retry={() => list.refetch()} />
       ) : list.isPending ? (
         <Skeleton className="h-40" />
       ) : list.data.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border-strong">
+        <div className="rounded-2xl border border-border bg-surface shadow-card">
           <EmptyState icon={Zap} title={t("auto.emptyTitle")} body={noPlaces ? t("auto.needPlace") : t("auto.emptyBody")}
             action={noPlaces ? <Link to="/places" className="text-sm font-medium text-primary">{t("auto.addPlace")}</Link> : newButton} />
         </div>
       ) : (
         <ul className="divide-y divide-border rounded-2xl border border-border bg-surface">
-          {list.data.map((a) => (
+          {list.data.slice(0, page.limit).map((a) => (
             <li key={a.id} className="space-y-3 p-4">
               <div className="flex flex-wrap items-center gap-3">
                 <span className={cn("grid size-10 shrink-0 place-items-center rounded-xl", a.enabled ? "bg-primary-subtle text-primary" : "bg-surface-2 text-subtle")}><Zap className="size-5" aria-hidden /></span>
@@ -124,6 +125,7 @@ export default function AutomationsPage() {
               </div>
             </li>
           ))}
+          <li><ShowMore total={list.data.length} limit={page.limit} onMore={page.more} step={page.step} /></li>
         </ul>
       )}
 

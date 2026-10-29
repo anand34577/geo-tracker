@@ -7,7 +7,7 @@ import { api, queryClient, type Share } from "../lib/api";
 import { ago, dateTime } from "../lib/format";
 import { usePrefs } from "../lib/prefs";
 import { RadioCards, RangePicker, Select, presetRange, rangeLabel, type Range } from "../components/controls";
-import { Button, ConfirmDialog, Dialog, EmptyState, ErrorState, Field, Input, Notice, PageHeader, Skeleton, cn, useToast } from "../components/ui";
+import { Button, ConfirmDialog, Dialog, EmptyState, ErrorState, Field, Input, Notice, PageHeader, ShowMore, Skeleton, cn, pageClass, useLimit, useToast } from "../components/ui";
 
 const durations = ["1", "4", "24", "72", "168", "720"] as const;
 
@@ -16,6 +16,7 @@ export default function SharingPage() {
   const toast = useToast();
   const { clock } = usePrefs();
   const shares = useQuery({ queryKey: ["shares"], queryFn: () => api<Share[]>("/shares") });
+  const page = useLimit(20);
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<{ url: string; share: Share } | null>(null);
   const [revoking, setRevoking] = useState<Share | null>(null);
@@ -49,26 +50,26 @@ export default function SharingPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-4 py-6 md:px-8 md:py-10">
-      <PageHeader title={t("share.title")} description={t("share.subtitle")} actions={<Button variant="primary" icon={Plus} onClick={() => setCreating(true)}>{t("share.new")}</Button>} />
+    <div className={pageClass}>
+      <PageHeader icon={Share2} title={t("share.title")} description={t("share.subtitle")} actions={<Button variant="primary" icon={Plus} onClick={() => setCreating(true)}>{t("share.new")}</Button>} />
       {shares.isError ? (
         <ErrorState error={shares.error} retry={() => shares.refetch()} />
       ) : shares.isPending ? (
         <Skeleton className="h-40" />
       ) : shares.data.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border-strong">
+        <div className="rounded-2xl border border-border bg-surface shadow-card">
           <EmptyState icon={Share2} title={t("share.emptyTitle")} body={t("share.emptyBody")} action={<Button variant="primary" icon={Plus} onClick={() => setCreating(true)}>{t("share.new")}</Button>} />
         </div>
       ) : (
-        <ul className="divide-y divide-border rounded-2xl border border-border bg-surface">
-          {shares.data.map((s) => {
+        <ul className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface shadow-card">
+          {shares.data.slice(0, page.limit).map((s) => {
             const expired = s.expires_at < Date.now();
             return (
               <li key={s.id} className="flex flex-wrap items-center gap-3 p-4">
                 <span className={cn("grid size-10 shrink-0 place-items-center rounded-xl", expired ? "bg-surface-2 text-subtle" : "bg-primary-subtle text-primary")}>
                   {s.kind === "live" ? <Radio className="size-5" aria-hidden /> : <History className="size-5" aria-hidden />}
                 </span>
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 basis-44">
                   <p className="truncate font-medium">{s.name}</p>
                   <p className="flex flex-wrap gap-x-3 text-sm text-muted">
                     <span>{s.kind === "live" ? t("share.liveShort") : rangeLabel({ from: s.from!, to: s.to! })}</span>
@@ -83,6 +84,7 @@ export default function SharingPage() {
               </li>
             );
           })}
+          <li><ShowMore total={shares.data.length} limit={page.limit} onMore={page.more} step={page.step} /></li>
         </ul>
       )}
 
